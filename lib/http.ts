@@ -1,3 +1,4 @@
+import { withBasePath } from "@/lib/base-path"
 import { ApiError, invalid } from "@/lib/errors"
 import { isRealDay } from "@/lib/time"
 
@@ -46,5 +47,5 @@ export function parseBefore(raw: string | null, fallback: string): string {
 }
 
 export function mediaUrl(id: string): string {
-  return `/api/media/${id}`
+  return withBasePath(`/api/media/${id}`)
 }

@@ -1,6 +1,8 @@
 import fs from "node:fs"
 import path from "node:path"
 
+import sharp from "sharp"
+
 import { uploadsDir } from "@/lib/db"
 
 const MIME_EXT = {
@@ -17,6 +19,7 @@ export type StoredImage = {
 }
 
 const MAX_BYTES = 20 * 1024 * 1024
+const TARGET_BYTES = 100 * 1024
 
 function matchesMagic(mime: keyof typeof MIME_EXT, bytes: Buffer): boolean {
   if (bytes.length < 12) {
@@ -54,11 +57,35 @@ export async function readImage(file: File): Promise<StoredImage | null> {
     throw new Error("mime")
   }
   const typed = mime as keyof typeof MIME_EXT
-  const bytes = Buffer.from(await file.arrayBuffer())
-  if (!matchesMagic(typed, bytes)) {
+  const original = Buffer.from(await file.arrayBuffer())
+  if (!matchesMagic(typed, original)) {
     throw new Error("mime")
   }
-  return { mime: typed, ext: MIME_EXT[typed], bytes }
+  const bytes = await compressWebp(original)
+  return { mime: "image/webp", ext: "webp", bytes }
+}
+
+async function compressWebp(input: Buffer): Promise<Buffer> {
+  let width = 1280
+  let quality = 76
+  let output = await encodeWebp(input, width, quality)
+  while (output.length > TARGET_BYTES && quality > 36) {
+    quality -= 8
+    output = await encodeWebp(input, width, quality)
+  }
+  while (output.length > TARGET_BYTES && width > 320) {
+    width = Math.round(width * 0.75)
+    output = await encodeWebp(input, width, quality)
+  }
+  return output
+}
+
+function encodeWebp(input: Buffer, width: number, quality: number): Promise<Buffer> {
+  return sharp(input, { animated: false, failOn: "none" })
+    .rotate()
+    .resize({ width, withoutEnlargement: true })
+    .webp({ quality, effort: 4 })
+    .toBuffer()
 }
 
 export function saveUpload(id: string, ext: string, bytes: Buffer): string {

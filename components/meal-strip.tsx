@@ -81,7 +81,9 @@ export function MealStrip({
                             />
                           ))}
                         </div>
-                      ) : null}
+                      ) : (
+                        <div className="size-40 rounded-md bg-muted" aria-hidden />
+                      )}
                     </article>
                   )
                 })}

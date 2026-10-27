@@ -1,5 +1,4 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export function StatusSkeleton() {
@@ -24,10 +23,7 @@ export function StatusSkeleton() {
             <Skeleton className="h-3 w-4" />
             <Skeleton className="h-3 w-4" />
           </div>
-          <Separator />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-6 w-full" />
         </CardContent>
       </Card>
       <Card>
@@ -47,6 +43,8 @@ export function StatusSkeleton() {
           <Skeleton className="h-5 w-16" />
         </CardHeader>
         <CardContent>
+          <Skeleton className="h-44 w-full" />
+          <Skeleton className="h-40 w-full" />
           <div className="flex items-center justify-between gap-3">
             <Skeleton className="h-8 w-24" />
             <Skeleton className="h-5 w-20" />

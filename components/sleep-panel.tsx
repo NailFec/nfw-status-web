@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
+import { SleepCharts } from "@/components/sleep-charts"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
@@ -43,6 +44,13 @@ export function SleepPanel({
         </CardTitle>
       </CardHeader>
       <CardContent>
+        <SleepCharts
+          days={days}
+          timeZone={timeZone}
+          today={today}
+          selected={selected}
+          onSelect={setSelected}
+        />
         {!day ? (
           <Empty className="px-6 py-8">
             <EmptyHeader>

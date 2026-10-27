@@ -3,12 +3,11 @@
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
-import { Separator } from "@/components/ui/separator"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatRange, formatTime } from "@/lib/format"
 import { levelAccentClass, levelClass, levelLabel, slotLabel } from "@/lib/labels"
 import { dayWindow } from "@/lib/time"
-import type { StatusSegment, TodayPayload } from "@/lib/types"
+import type { CalendarEventView, StatusSegment, TodayPayload } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const ticks = [0, 6, 12, 18, 24]
@@ -25,9 +24,6 @@ export function TodayPanel({ today, now }: { today: TodayPayload; now: string })
         </CardHeader>
         <CardContent>
           <Timeline today={today} now={now} />
-          <Separator />
-          <h3 className="font-medium">Calendar</h3>
-          <CalendarList today={today} />
         </CardContent>
       </Card>
     </div>
@@ -55,18 +51,20 @@ function CurrentStatus({ today }: { today: TodayPayload }) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-stretch gap-3">
+        <div className="flex items-center gap-3">
           <span
             aria-hidden
-            className={cn("w-1.5 shrink-0 rounded-full", levelAccentClass[current.level])}
+            className={cn("h-8 w-1.5 shrink-0 rounded-full", levelAccentClass[current.level])}
           />
-          <h1
-            aria-live="polite"
-            className="min-w-0 flex-1 text-2xl leading-tight font-medium break-words text-balance sm:text-3xl"
-          >
-            <span className="sr-only">{levelLabel[current.level]}, </span>
-            {current.content}
-          </h1>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+            <h1
+              aria-live="polite"
+              className="min-w-0 text-2xl leading-tight font-medium break-words text-balance sm:text-3xl"
+            >
+              {current.content}
+            </h1>
+            <Badge variant="secondary">{levelLabel[current.level]}</Badge>
+          </div>
         </div>
       </CardHeader>
     </Card>
@@ -110,11 +108,14 @@ function Timeline({ today, now }: { today: TodayPayload; now: string }) {
             const label = `${segment.content}, ${range}`
             const narrow = clip.width < 8
             const className = cn(
-              "absolute inset-y-0 flex min-w-0 items-center overflow-hidden text-xs font-medium focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none",
+              "absolute inset-y-0 flex min-w-0 items-center overflow-hidden text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none",
               levelClass[segment.level],
-              narrow && "min-w-6",
             )
-            const style = { left: `${clip.left}%`, width: `${clip.width}%` }
+            const style = {
+              left: `${clip.left}%`,
+              width: `${clip.width}%`,
+              minWidth: "2px",
+            }
             if (narrow) {
               return (
                 <Tooltip key={segment.id}>
@@ -139,6 +140,7 @@ function Timeline({ today, now }: { today: TodayPayload; now: string }) {
             )
           })}
         </div>
+        <CalendarLanes today={today} startMs={startMs} endMs={endMs} />
       </div>
       <div className="relative h-4">
         {ticks.map((hour) => (
@@ -166,10 +168,11 @@ function clipSegment(
   nowMs: number,
 ): { left: number; width: number } | null {
   const segmentStart = Date.parse(segment.startedAt)
-  const segmentEnd = segment.endedAt ? Date.parse(segment.endedAt) : nowMs
+  const open = segment.endedAt == null
+  const segmentEnd = open ? nowMs : Date.parse(segment.endedAt ?? "")
   const visibleStart = Math.max(segmentStart, startMs)
   const visibleEnd = Math.min(segmentEnd, endMs)
-  if (!(visibleEnd > visibleStart)) {
+  if (visibleEnd < visibleStart || (visibleEnd === visibleStart && !open)) {
     return null
   }
   const span = endMs - startMs
@@ -179,47 +182,106 @@ function clipSegment(
   }
 }
 
-function CalendarList({ today }: { today: TodayPayload }) {
-  if (today.events.length === 0) {
+type PlacedEvent = {
+  event: CalendarEventView
+  lane: number
+  left: number
+  width: number
+  start: number
+  end: number
+}
+
+function CalendarLanes({
+  today,
+  startMs,
+  endMs,
+}: {
+  today: TodayPayload
+  startMs: number
+  endMs: number
+}) {
+  const placed = placeEvents(today.events, startMs, endMs)
+  if (placed.length === 0) {
     return (
-      <Empty className="px-6 py-8">
+      <Empty className="px-6 py-6">
         <EmptyHeader>
           <EmptyTitle>No events</EmptyTitle>
         </EmptyHeader>
       </Empty>
     )
   }
-  const allDay = today.events.filter((event) => event.allDay)
-  const timed = today.events.filter((event) => !event.allDay)
+  const lanes = Math.max(...placed.map((item) => item.lane)) + 1
   return (
-    <div className="flex flex-col gap-3">
-      {allDay.length > 0 ? <EventRows events={allDay} timeZone={today.timezone} /> : null}
-      {allDay.length > 0 && timed.length > 0 ? <Separator /> : null}
-      {timed.length > 0 ? <EventRows events={timed} timeZone={today.timezone} /> : null}
+    <div className="relative" style={{ height: lanes * 28 }} role="group" aria-label="Calendar">
+      {placed.map((item) => {
+        const range = item.event.allDay
+          ? "All day"
+          : formatRange(item.event.start, item.event.end, today.timezone)
+        const label = `${item.event.title}, ${range}, ${item.event.calendarName}`
+        const narrow = item.width < 8
+        return (
+          <Tooltip key={item.event.id}>
+            <TooltipTrigger
+              aria-label={label}
+              className="absolute flex min-w-0 items-center overflow-hidden rounded-sm bg-primary px-1 text-xs text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              style={{
+                left: `${item.left}%`,
+                width: `${item.width}%`,
+                top: item.lane * 28 + 2,
+                height: 24,
+                minWidth: "2px",
+              }}
+            >
+              {narrow ? null : <span className="truncate">{item.event.title}</span>}
+            </TooltipTrigger>
+            <TooltipContent>
+              <span className="flex max-w-xs flex-col gap-0.5">
+                <span className="break-words">{item.event.title}</span>
+                <span className="tabular-nums">{range}</span>
+                <span>{item.event.calendarName}</span>
+              </span>
+            </TooltipContent>
+          </Tooltip>
+        )
+      })}
     </div>
   )
 }
 
-function EventRows({
-  events,
-  timeZone,
-}: {
-  events: TodayPayload["events"]
-  timeZone: string
-}) {
-  return (
-    <ul className="flex flex-col gap-2">
-      {events.map((event) => (
-        <li key={event.id} className="flex min-w-0 items-center gap-3">
-          <span className="w-24 shrink-0 text-muted-foreground tabular-nums">
-            {event.allDay ? "All day" : formatTime(event.start, timeZone)}
-          </span>
-          <span className="min-w-0 flex-1 truncate">{event.title}</span>
-          <Badge variant="secondary" className="max-w-36 truncate">
-            {event.calendarName}
-          </Badge>
-        </li>
-      ))}
-    </ul>
-  )
+function placeEvents(events: CalendarEventView[], startMs: number, endMs: number): PlacedEvent[] {
+  const span = endMs - startMs
+  if (!(span > 0)) {
+    return []
+  }
+  const drafts = events.flatMap((event) => {
+    if (event.allDay) {
+      return [{ event, left: 0, width: 100, start: startMs, end: endMs }]
+    }
+    const start = Math.max(Date.parse(event.start), startMs)
+    const end = Math.min(Date.parse(event.end), endMs)
+    if (!(end > start)) {
+      return []
+    }
+    return [
+      {
+        event,
+        left: ((start - startMs) / span) * 100,
+        width: ((end - start) / span) * 100,
+        start,
+        end,
+      },
+    ]
+  })
+  drafts.sort((a, b) => a.start - b.start || b.end - a.end)
+  const laneEnds: number[] = []
+  return drafts.map((item) => {
+    let lane = laneEnds.findIndex((end) => end <= item.start)
+    if (lane < 0) {
+      lane = laneEnds.length
+      laneEnds.push(item.end)
+    } else {
+      laneEnds[lane] = item.end
+    }
+    return { ...item, lane }
+  })
 }

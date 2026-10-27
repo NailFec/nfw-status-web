@@ -42,7 +42,7 @@ export function StatusBoard({
     }
     if (kind === "sleep" || kind === "visible") {
       const response = await fetch(
-        `/api/sleep?before=${encodeURIComponent(nextToday.day)}&limit=30`,
+        `/api/sleep?before=${encodeURIComponent(nextToday.day)}&limit=400`,
         { cache: "no-store" },
       )
       if (!response.ok) {

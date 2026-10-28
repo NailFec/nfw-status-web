@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { dayHasRecord, StatusRangeChart } from "@/components/status-range-chart"
@@ -34,16 +34,23 @@ const ticks = [0, 6, 12, 18, 24]
 
 export function TodayPanel({
   today,
+  history,
+  historyHasMore,
+  onNeedOlder,
   now,
 }: {
   today: TodayPayload
+  history: DayTimeline[]
+  historyHasMore: boolean
+  onNeedOlder: () => void
   now: string
 }) {
   const recorded = useMemo(
-    () => today.history.filter(dayHasRecord).reverse(),
-    [today.history]
+    () => history.filter(dayHasRecord).reverse(),
+    [history]
   )
   const [selected, setSelected] = useState(recorded[0]?.day ?? "")
+  const armOlder = useRef(false)
 
   useEffect(() => {
     setSelected((current) => {
@@ -59,6 +66,24 @@ export function TodayPanel({
     recorded.findIndex((day) => day.day === selected)
   )
   const item = recorded[index]
+  const atOldest = index >= recorded.length - 1
+
+  useEffect(() => {
+    if (!armOlder.current) {
+      return
+    }
+    const next = recorded[index + 1]
+    if (next) {
+      armOlder.current = false
+      setSelected(next.day)
+      return
+    }
+    if (historyHasMore) {
+      onNeedOlder()
+      return
+    }
+    armOlder.current = false
+  }, [historyHasMore, index, onNeedOlder, recorded])
 
   return (
     <TooltipProvider delay={0}>
@@ -86,9 +111,14 @@ export function TodayPanel({
                       const next = recorded[index + 1]
                       if (next) {
                         setSelected(next.day)
+                        return
+                      }
+                      if (historyHasMore) {
+                        armOlder.current = true
+                        onNeedOlder()
                       }
                     }}
-                    disabled={index >= recorded.length - 1}
+                    disabled={atOldest && !historyHasMore}
                   >
                     <ChevronLeftIcon data-icon="inline-start" />
                     Older
@@ -119,12 +149,14 @@ export function TodayPanel({
               </div>
             )}
             <StatusRangeChart
-              history={today.history}
+              history={history}
               timeZone={today.timezone}
               today={today.day}
               now={now}
               selected={selected}
               onSelect={setSelected}
+              onNearStart={onNeedOlder}
+              preserveKey={history[0]?.day}
             />
           </CardContent>
         </Card>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
 
 import { SleepCharts } from "@/components/sleep-charts"
@@ -24,12 +24,17 @@ export function SleepPanel({
   days,
   timeZone,
   today,
+  hasMore,
+  onNeedOlder,
 }: {
   days: SleepDay[]
   timeZone: string
   today: string
+  hasMore: boolean
+  onNeedOlder: () => void
 }) {
   const [selected, setSelected] = useState(days[0]?.date ?? "")
+  const armOlder = useRef(false)
 
   useEffect(() => {
     setSelected((current) => {
@@ -45,6 +50,24 @@ export function SleepPanel({
     days.findIndex((day) => day.date === selected)
   )
   const day = days[index]
+  const atOldest = index >= days.length - 1
+
+  useEffect(() => {
+    if (!armOlder.current) {
+      return
+    }
+    const next = days[index + 1]
+    if (next) {
+      armOlder.current = false
+      setSelected(next.date)
+      return
+    }
+    if (hasMore) {
+      onNeedOlder()
+      return
+    }
+    armOlder.current = false
+  }, [days, hasMore, index, onNeedOlder])
 
   return (
     <Card className="min-w-0">
@@ -65,12 +88,17 @@ export function SleepPanel({
             day={day}
             timeZone={timeZone}
             today={today}
-            canOlder={index < days.length - 1}
+            canOlder={!atOldest || hasMore}
             canNewer={index > 0}
             onOlder={() => {
               const next = days[index + 1]
               if (next) {
                 setSelected(next.date)
+                return
+              }
+              if (hasMore) {
+                armOlder.current = true
+                onNeedOlder()
               }
             }}
             onNewer={() => {
@@ -87,6 +115,8 @@ export function SleepPanel({
           today={today}
           selected={selected}
           onSelect={setSelected}
+          onNearStart={onNeedOlder}
+          preserveKey={days[days.length - 1]?.date}
         />
       </CardContent>
     </Card>

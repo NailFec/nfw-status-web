@@ -10,26 +10,43 @@ export function HorizontalScroll({
   className,
   pinned = false,
   pinKey,
+  preserveKey,
   pageScroll = false,
+  onNearStart,
 }: {
   label: string
   children: React.ReactNode
   className?: string
   pinned?: boolean
   pinKey?: string | number
+  preserveKey?: string | number
   pageScroll?: boolean
+  onNearStart?: () => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(pinned)
+  const widthRef = useRef(0)
+  const preserveRef = useRef(preserveKey)
+  const nearStartRef = useRef(onNearStart)
   const [overflowing, setOverflowing] = useState(false)
+  nearStartRef.current = onNearStart
 
   useLayoutEffect(() => {
     const viewport = ref.current
     if (!viewport) {
       return
     }
+    const next = viewport.scrollWidth
+    const previous = widthRef.current
+    const preserveChanged = preserveRef.current !== preserveKey
+    preserveRef.current = preserveKey
+    if (preserveChanged && previous > 0 && next > previous) {
+      viewport.scrollLeft += next - previous
+    }
+    widthRef.current = next
     const update = () => {
       setOverflowing(viewport.scrollWidth > viewport.clientWidth + 1)
+      widthRef.current = viewport.scrollWidth
       if (stick.current) {
         viewport.scrollLeft = viewport.scrollWidth
       }
@@ -38,7 +55,7 @@ export function HorizontalScroll({
     const observer = new ResizeObserver(update)
     observer.observe(viewport)
     return () => observer.disconnect()
-  }, [pinKey])
+  }, [pinKey, preserveKey])
 
   useEffect(() => {
     const viewport = ref.current
@@ -98,6 +115,9 @@ export function HorizontalScroll({
         }
         stick.current =
           viewport.scrollLeft + viewport.clientWidth >= viewport.scrollWidth - 2
+        if (viewport.scrollLeft <= 24) {
+          nearStartRef.current?.()
+        }
       }}
       onKeyDown={(event) => {
         const viewport = event.currentTarget

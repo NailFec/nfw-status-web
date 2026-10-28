@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 
 import { getDb } from "@/lib/db"
 import { ApiError, invalid } from "@/lib/errors"
-import { deleteUpload, readImage, saveUpload } from "@/lib/files"
+import { deleteUpload, previewDataUrl, readImage, saveUpload, writePreview } from "@/lib/files"
 import { mediaUrl } from "@/lib/http"
 import { publish } from "@/lib/live"
 import { dayKey, formatIso, parseInstant, statusTimeZone } from "@/lib/time"
@@ -21,11 +21,11 @@ type PhotoRow = {
   sort: number
 }
 
-function toPhoto(id: string): MealPhoto {
-  return { id, url: mediaUrl(id) }
+async function toPhoto(id: string): Promise<MealPhoto> {
+  return { id, url: mediaUrl(id), preview: await previewDataUrl(id) }
 }
 
-function loadPhotos(mealIds: string[]): Map<string, MealPhoto[]> {
+async function loadPhotos(mealIds: string[]): Promise<Map<string, MealPhoto[]>> {
   const grouped = new Map<string, MealPhoto[]>()
   if (mealIds.length === 0) {
     return grouped
@@ -38,10 +38,16 @@ function loadPhotos(mealIds: string[]): Map<string, MealPhoto[]> {
     .all(...mealIds) as PhotoRow[]
   for (const row of rows) {
     const list = grouped.get(row.meal_id) ?? []
-    list.push(toPhoto(row.id))
+    list.push(await toPhoto(row.id))
     grouped.set(row.meal_id, list)
   }
   return grouped
+}
+
+function slotRank(slot: Slot): number {
+  if (slot === "dinner") return 0
+  if (slot === "lunch") return 1
+  return 2
 }
 
 function toMeal(row: MealRow, photos: MealPhoto[]): Meal {
@@ -54,19 +60,64 @@ function toMeal(row: MealRow, photos: MealPhoto[]): Meal {
   }
 }
 
-export function listMeals(before: string, limit: number): Meal[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT id, day, slot, eaten_at FROM meals
-       WHERE day <= ?
-       ORDER BY day DESC,
+const mealOrder = `day DESC,
          CASE slot WHEN 'dinner' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END,
-         eaten_at DESC
-       LIMIT ?`
-    )
-    .all(before, limit) as MealRow[]
-  const photos = loadPhotos(rows.map((row) => row.id))
-  return rows.map((row) => toMeal(row, photos.get(row.id) ?? []))
+         eaten_at DESC,
+         id DESC`
+
+export async function listMeals(
+  before: string,
+  limit: number,
+  beforeId?: string,
+): Promise<{ meals: Meal[]; hasMore: boolean }> {
+  const db = getDb()
+  let rows: MealRow[]
+  if (beforeId) {
+    const cursor = getMealRow(beforeId)
+    if (!cursor) {
+      invalid()
+    }
+    const rank = slotRank(cursor.slot)
+    rows = db
+      .prepare(
+        `SELECT id, day, slot, eaten_at FROM meals
+         WHERE day < ?
+            OR (day = ? AND CASE slot WHEN 'dinner' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END > ?)
+            OR (day = ? AND CASE slot WHEN 'dinner' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END = ? AND eaten_at < ?)
+            OR (day = ? AND CASE slot WHEN 'dinner' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END = ? AND eaten_at = ? AND id < ?)
+         ORDER BY ${mealOrder}
+         LIMIT ?`,
+      )
+      .all(
+        cursor.day,
+        cursor.day,
+        rank,
+        cursor.day,
+        rank,
+        cursor.eaten_at,
+        cursor.day,
+        rank,
+        cursor.eaten_at,
+        cursor.id,
+        limit + 1,
+      ) as MealRow[]
+  } else {
+    rows = db
+      .prepare(
+        `SELECT id, day, slot, eaten_at FROM meals
+         WHERE day <= ?
+         ORDER BY ${mealOrder}
+         LIMIT ?`,
+      )
+      .all(before, limit + 1) as MealRow[]
+  }
+  const hasMore = rows.length > limit
+  const page = hasMore ? rows.slice(0, limit) : rows
+  const photos = await loadPhotos(page.map((row) => row.id))
+  return {
+    meals: page.map((row) => toMeal(row, photos.get(row.id) ?? [])),
+    hasMore,
+  }
 }
 
 export function mealsBetween(startDay: string, endDay: string): Meal[] {
@@ -82,7 +133,7 @@ export function mealsBetween(startDay: string, endDay: string): Meal[] {
   return rows.map((row) => toMeal(row, []))
 }
 
-export function mealsOnDay(day: string): Meal[] {
+export async function mealsOnDay(day: string): Promise<Meal[]> {
   const rows = getDb()
     .prepare(
       `SELECT id, day, slot, eaten_at FROM meals
@@ -90,7 +141,7 @@ export function mealsOnDay(day: string): Meal[] {
        ORDER BY CASE slot WHEN 'breakfast' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END`
     )
     .all(day) as MealRow[]
-  const photos = loadPhotos(rows.map((row) => row.id))
+  const photos = await loadPhotos(rows.map((row) => row.id))
   return rows.map((row) => toMeal(row, photos.get(row.id) ?? []))
 }
 
@@ -100,12 +151,12 @@ function getMealRow(id: string): MealRow | undefined {
     .get(id) as MealRow | undefined
 }
 
-function mealById(id: string): Meal {
+async function mealById(id: string): Promise<Meal> {
   const row = getMealRow(id)
   if (!row) {
     throw new ApiError("not_found", 404)
   }
-  const photos = loadPhotos([id]).get(id) ?? []
+  const photos = (await loadPhotos([id])).get(id) ?? []
   return toMeal(row, photos)
 }
 
@@ -171,6 +222,7 @@ export async function createMeal(form: FormData): Promise<Meal> {
     for (const image of images) {
       const photoId = randomUUID()
       const relative = saveUpload(photoId, image.ext, image.bytes)
+      await writePreview(photoId, image.bytes)
       saved.push({ id: photoId, path: relative })
     }
     const db = getDb()
@@ -262,6 +314,7 @@ export async function updateMeal(id: string, form: FormData): Promise<Meal> {
     for (const image of images) {
       const photoId = randomUUID()
       const relative = saveUpload(photoId, image.ext, image.bytes)
+      await writePreview(photoId, image.bytes)
       saved.push({ id: photoId, path: relative, mime: image.mime })
     }
     const db = getDb()

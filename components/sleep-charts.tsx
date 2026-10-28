@@ -46,18 +46,28 @@ export function SleepCharts({
   today,
   selected,
   onSelect,
+  onNearStart,
+  preserveKey,
 }: {
   days: SleepDay[]
   timeZone: string
   today: string
   selected: string
   onSelect: (date: string) => void
+  onNearStart?: () => void
+  preserveKey?: string | number
 }) {
   const series = buildSeries(days, today, timeZone)
   const width = `${(series.length / windowDays) * 100}%`
 
   return (
-    <HorizontalScroll label="Sleep history" pinned pinKey={series.length}>
+    <HorizontalScroll
+      label="Sleep history"
+      pinned
+      pinKey={series.length}
+      preserveKey={preserveKey}
+      onNearStart={onNearStart}
+    >
       <div className="flex min-w-full flex-col gap-4 p-1" style={{ width }}>
         <h3 className="sticky left-0 w-fit font-medium">Range</h3>
         <RangeChart series={series} selected={selected} onSelect={onSelect} />

@@ -33,44 +33,52 @@ function rejectEndedAt(body: unknown): void {
   }
 }
 
-function orderedRows(): SegmentRow[] {
-  return getDb()
-    .prepare(
-      "SELECT id, level, content, started_at FROM status_segments ORDER BY started_at ASC, id ASC",
-    )
-    .all() as SegmentRow[]
-}
+type EndedRow = SegmentRow & { ended_at: string | null }
 
-function withEnds(rows: SegmentRow[]): StatusSegment[] {
-  return rows.map((row, index) => ({
+const endedFrom = `
+  WITH ordered AS (
+    SELECT id, level, content, started_at,
+           LEAD(started_at) OVER (ORDER BY started_at ASC, id ASC) AS ended_at
+    FROM status_segments
+  )
+`
+
+function toSegment(row: EndedRow): StatusSegment {
+  return {
     id: row.id,
     level: row.level,
     content: row.content,
     startedAt: row.started_at,
-    endedAt: index + 1 < rows.length ? rows[index + 1].started_at : null,
-  }))
+    endedAt: row.ended_at,
+  }
 }
 
 function segmentById(id: string): StatusSegment {
-  const segment = withEnds(orderedRows()).find((item) => item.id === id)
-  if (!segment) {
+  const row = getDb()
+    .prepare(
+      `${endedFrom}
+       SELECT id, level, content, started_at, ended_at
+       FROM ordered
+       WHERE id = ?`,
+    )
+    .get(id) as EndedRow | undefined
+  if (!row) {
     throw new ApiError("not_found", 404)
   }
-  return segment
-}
-
-function covers(segment: StatusSegment, startMs: number, endMs: number, nowMs: number): boolean {
-  const start = Date.parse(segment.startedAt)
-  const stop = segment.endedAt === null ? nowMs : Date.parse(segment.endedAt)
-  return start < stop && start < endMs && stop > startMs
+  return toSegment(row)
 }
 
 function assertUniqueStart(startedAt: string, exceptId?: string): void {
-  const startedMs = Date.parse(startedAt)
-  const taken = orderedRows().some(
-    (row) => row.id !== exceptId && Date.parse(row.started_at) === startedMs,
-  )
-  if (taken) {
+  const row = exceptId
+    ? getDb()
+        .prepare(
+          "SELECT 1 AS found FROM status_segments WHERE started_at = ? AND id != ? LIMIT 1",
+        )
+        .get(startedAt, exceptId)
+    : getDb()
+        .prepare("SELECT 1 AS found FROM status_segments WHERE started_at = ? LIMIT 1")
+        .get(startedAt)
+  if (row) {
     throw new ApiError("overlap", 409)
   }
 }
@@ -102,8 +110,16 @@ function requireInstant(value: string, timeZone: string): string {
 }
 
 export function listStatus(limit: number): StatusSegment[] {
-  const segments = withEnds(orderedRows())
-  return segments.slice(Math.max(0, segments.length - limit)).reverse()
+  const rows = getDb()
+    .prepare(
+      `${endedFrom}
+       SELECT id, level, content, started_at, ended_at
+       FROM ordered
+       ORDER BY started_at DESC, id DESC
+       LIMIT ?`,
+    )
+    .all(limit) as EndedRow[]
+  return rows.map(toSegment)
 }
 
 export function segmentsOverlapping(
@@ -111,21 +127,45 @@ export function segmentsOverlapping(
   dayEndIso: string,
   now: string,
 ): StatusSegment[] {
-  const startMs = Date.parse(dayStartIso)
-  const endMs = Date.parse(dayEndIso)
+  const rows = getDb()
+    .prepare(
+      `${endedFrom}
+       SELECT id, level, content, started_at, ended_at
+       FROM ordered
+       WHERE started_at < ?
+         AND (ended_at IS NULL OR ended_at > ?)
+       ORDER BY started_at ASC, id ASC`,
+    )
+    .all(dayEndIso, dayStartIso) as EndedRow[]
   const nowMs = Date.parse(now)
-  return withEnds(orderedRows()).filter((segment) => covers(segment, startMs, endMs, nowMs))
+  return rows.map(toSegment).filter((segment) => {
+    const start = Date.parse(segment.startedAt)
+    const stop = segment.endedAt === null ? nowMs : Date.parse(segment.endedAt)
+    return start < stop
+  })
 }
 
 export function currentStatus(now: string): StatusSegment | null {
-  const nowMs = Date.parse(now)
-  let current: StatusSegment | null = null
-  for (const segment of withEnds(orderedRows())) {
-    if (Date.parse(segment.startedAt) <= nowMs) {
-      current = segment
-    }
+  const row = getDb()
+    .prepare(
+      `${endedFrom}
+       SELECT id, level, content, started_at, ended_at
+       FROM ordered
+       WHERE started_at <= ?
+       ORDER BY started_at DESC, id DESC
+       LIMIT 1`,
+    )
+    .get(now) as EndedRow | undefined
+  if (!row) {
+    return null
   }
-  return current
+  const segment = toSegment(row)
+  const nowMs = Date.parse(now)
+  const stop = segment.endedAt === null ? Number.POSITIVE_INFINITY : Date.parse(segment.endedAt)
+  if (stop <= nowMs) {
+    return null
+  }
+  return segment
 }
 
 export function createStatus(body: unknown): StatusSegment {

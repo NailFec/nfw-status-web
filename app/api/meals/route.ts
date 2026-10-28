@@ -12,7 +12,13 @@ export function GET(request: Request) {
     const params = new URL(request.url).searchParams
     const before = parseBefore(params.get("before"), todayKey())
     const limit = parseLimit(params.get("limit"), 60, 200)
-    return Response.json({ meals: listMeals(before, limit) })
+    const beforeId = params.get("beforeId")
+    const page = await listMeals(
+      before,
+      limit,
+      beforeId && beforeId.length > 0 ? beforeId : undefined,
+    )
+    return Response.json(page)
   })
 }
 

@@ -29,15 +29,6 @@ const postSchema = z.object({
   stages: z.array(stageSchema),
 })
 
-const patchSchema = z
-  .object({
-    bedtime: z.string().nullable().optional(),
-    wakeTime: z.string().nullable().optional(),
-    durationMinutes: z.number().int().nonnegative().nullable().optional(),
-    stages: z.array(stageSchema).optional(),
-  })
-  .strict()
-
 function normalizeInstant(value: string): string {
   const timeZone = statusTimeZone()
   const date = parseInstant(value)
@@ -74,15 +65,9 @@ function parseStages(json: string | null): SleepStage[] {
   }
 }
 
-export function sleepOn(date: string): SleepDay | null {
-  const row = getDb().prepare("SELECT * FROM sleep_days WHERE date = ?").get(date) as
-    | SleepRow
-    | undefined
-  if (!row) {
-    return null
-  }
+function toSleepDay(row: SleepRow): SleepDay {
   return {
-    date,
+    date: row.date,
     bedtime: row.bedtime,
     wakeTime: row.wake_time,
     durationMinutes: row.duration_minutes,
@@ -90,20 +75,35 @@ export function sleepOn(date: string): SleepDay | null {
   }
 }
 
+export function sleepOn(date: string): SleepDay | null {
+  const row = getDb().prepare("SELECT * FROM sleep_days WHERE date = ?").get(date) as
+    | SleepRow
+    | undefined
+  if (!row) {
+    return null
+  }
+  return toSleepDay(row)
+}
+
 export function listSleep(before: string, limit?: number): SleepDay[] {
   const limited = limit != null
   const rows = getDb()
     .prepare(
-      `SELECT date FROM sleep_days
+      `SELECT date, bedtime, wake_time, duration_minutes, stages_json, updated_at
+       FROM sleep_days
        WHERE date <= ?
        ORDER BY date DESC
        ${limited ? "LIMIT ?" : ""}`,
     )
-    .all(...(limited ? [before, limit] : [before])) as { date: string }[]
-  return rows.flatMap((row) => {
-    const day = sleepOn(row.date)
-    return day ? [day] : []
-  })
+    .all(...(limited ? [before, limit] : [before])) as SleepRow[]
+  return rows.map(toSleepDay)
+}
+
+export function sleepDates(): string[] {
+  const rows = getDb()
+    .prepare("SELECT date FROM sleep_days ORDER BY date ASC")
+    .all() as { date: string }[]
+  return rows.map((row) => row.date)
 }
 
 export function saveSleep(body: unknown): SleepDay {
@@ -138,54 +138,6 @@ export function saveSleep(body: unknown): SleepDay {
   const day = sleepOn(parsed.data.date)
   if (!day) {
     throw new ApiError("invalid", 400)
-  }
-  return day
-}
-
-export function patchSleep(date: string, body: unknown): SleepDay {
-  if (!isRealDay(date)) {
-    invalid()
-  }
-  const parsed = patchSchema.safeParse(body)
-  if (!parsed.success) {
-    invalid()
-  }
-  const db = getDb()
-  const current = db.prepare("SELECT * FROM sleep_days WHERE date = ?").get(date) as
-    | SleepRow
-    | undefined
-  if (!current) {
-    throw new ApiError("not_found", 404)
-  }
-  const bedtime =
-    parsed.data.bedtime === undefined
-      ? current.bedtime
-      : parsed.data.bedtime === null
-        ? null
-        : normalizeInstant(parsed.data.bedtime)
-  const wakeTime =
-    parsed.data.wakeTime === undefined
-      ? current.wake_time
-      : parsed.data.wakeTime === null
-        ? null
-        : normalizeInstant(parsed.data.wakeTime)
-  const duration =
-    parsed.data.durationMinutes === undefined
-      ? current.duration_minutes
-      : parsed.data.durationMinutes
-  const stages =
-    parsed.data.stages === undefined
-      ? current.stages_json
-      : JSON.stringify(normalizeStages(parsed.data.stages))
-  db.prepare(
-    `UPDATE sleep_days
-     SET bedtime = ?, wake_time = ?, duration_minutes = ?, stages_json = ?, updated_at = ?
-     WHERE date = ?`,
-  ).run(bedtime, wakeTime, duration, stages, nowIso(), date)
-  publish("sleep")
-  const day = sleepOn(date)
-  if (!day) {
-    throw new ApiError("not_found", 404)
   }
   return day
 }

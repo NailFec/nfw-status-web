@@ -34,6 +34,8 @@ export function StatusRangeChart({
   now,
   selected,
   onSelect,
+  onNearStart,
+  preserveKey,
 }: {
   history: DayTimeline[]
   timeZone: string
@@ -41,12 +43,20 @@ export function StatusRangeChart({
   now: string
   selected: string
   onSelect: (day: string) => void
+  onNearStart?: () => void
+  preserveKey?: string | number
 }) {
   const series = buildSeries(history, today, timeZone, now)
   const width = `${(series.length / windowDays) * 100}%`
 
   return (
-    <HorizontalScroll label="Status history" pinned pinKey={`${today}:${series.length}`}>
+    <HorizontalScroll
+      label="Status history"
+      pinned
+      pinKey={`${today}:${series.length}`}
+      preserveKey={preserveKey}
+      onNearStart={onNearStart}
+    >
       <div className="flex min-w-full flex-col gap-4 p-1" style={{ width }}>
         <h3 className="sticky left-0 w-fit font-medium">Range</h3>
         <div

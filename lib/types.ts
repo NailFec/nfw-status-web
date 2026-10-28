@@ -36,6 +36,7 @@ export type CurrentStatus = {
 export type MealPhoto = {
   id: string
   url: string
+  preview: string | null
 }
 
 export type Meal = {
@@ -86,6 +87,17 @@ export type TodayPayload = {
   events: CalendarEventView[]
   sleep: SleepDay | null
   history: DayTimeline[]
+  historyHasMore: boolean
+}
+
+export type HistoryPage = {
+  timezone: string
+  now: string
+  start: string
+  end: string
+  days: DayTimeline[]
+  hasMore: boolean
+  current: CurrentStatus | null
 }
 
 export type Phrase = {

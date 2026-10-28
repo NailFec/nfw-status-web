@@ -88,6 +88,37 @@ function encodeWebp(input: Buffer, width: number, quality: number): Promise<Buff
     .toBuffer()
 }
 
+const PREVIEW_WIDTH = 32
+const PREVIEW_QUALITY = 20
+
+export async function writePreview(id: string, source: Buffer): Promise<void> {
+  const bytes = await sharp(source, { animated: false, failOn: "none" })
+    .rotate()
+    .resize({ width: PREVIEW_WIDTH, withoutEnlargement: true })
+    .webp({ quality: PREVIEW_QUALITY, effort: 4 })
+    .toBuffer()
+  const root = path.resolve(uploadsDir())
+  fs.mkdirSync(root, { recursive: true })
+  const target = path.join(root, `${id}.preview.webp`)
+  fs.writeFileSync(target, bytes)
+}
+
+export async function previewDataUrl(id: string): Promise<string | null> {
+  const root = path.resolve(uploadsDir())
+  const preview = path.join(root, `${id}.preview.webp`)
+  if (!fs.existsSync(preview)) {
+    const full = path.join(root, `${id}.webp`)
+    if (!fs.existsSync(full)) {
+      return null
+    }
+    await writePreview(id, fs.readFileSync(full))
+  }
+  if (!fs.existsSync(preview)) {
+    return null
+  }
+  return `data:image/webp;base64,${fs.readFileSync(preview).toString("base64")}`
+}
+
 export function saveUpload(id: string, ext: string, bytes: Buffer): string {
   const relative = `uploads/${id}.${ext}`
   const root = path.resolve(uploadsDir())
@@ -110,6 +141,16 @@ export function deleteUpload(relativePath: string): void {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
       console.error("Failed to delete upload")
+    }
+  }
+  if (resolved.endsWith(".webp")) {
+    const preview = resolved.slice(0, -".webp".length) + ".preview.webp"
+    try {
+      fs.unlinkSync(preview)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error("Failed to delete upload preview")
+      }
     }
   }
 }

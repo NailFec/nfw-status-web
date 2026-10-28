@@ -13,7 +13,6 @@ type SegmentRow = {
   level: Level
   content: string
   started_at: string
-  ended_at: string | null
 }
 
 const postSchema = z.object({
@@ -26,39 +25,54 @@ const patchSchema = z.object({
   level: z.enum(LEVELS).optional(),
   content: z.string().optional(),
   startedAt: z.string().optional(),
-  endedAt: z.string().nullable().optional(),
 })
 
-function toSegment(row: SegmentRow): StatusSegment {
-  return {
+function rejectEndedAt(body: unknown): void {
+  if (typeof body === "object" && body !== null && "endedAt" in body) {
+    invalid()
+  }
+}
+
+function orderedRows(): SegmentRow[] {
+  return getDb()
+    .prepare(
+      "SELECT id, level, content, started_at FROM status_segments ORDER BY started_at ASC, id ASC",
+    )
+    .all() as SegmentRow[]
+}
+
+function withEnds(rows: SegmentRow[]): StatusSegment[] {
+  return rows.map((row, index) => ({
     id: row.id,
     level: row.level,
     content: row.content,
     startedAt: row.started_at,
-    endedAt: row.ended_at,
+    endedAt: index + 1 < rows.length ? rows[index + 1].started_at : null,
+  }))
+}
+
+function segmentById(id: string): StatusSegment {
+  const segment = withEnds(orderedRows()).find((item) => item.id === id)
+  if (!segment) {
+    throw new ApiError("not_found", 404)
   }
+  return segment
 }
 
-function rangesOverlap(
-  aStart: number,
-  aEnd: number | null,
-  bStart: number,
-  bEnd: number | null,
-): boolean {
-  const aStop = aEnd ?? Number.POSITIVE_INFINITY
-  const bStop = bEnd ?? Number.POSITIVE_INFINITY
-  return aStart < bStop && bStart < aStop
+function covers(segment: StatusSegment, startMs: number, endMs: number, nowMs: number): boolean {
+  const start = Date.parse(segment.startedAt)
+  const stop = segment.endedAt === null ? nowMs : Date.parse(segment.endedAt)
+  return start < stop && start < endMs && stop > startMs
 }
 
-function rowBounds(row: SegmentRow): { start: number; end: number | null } {
-  return {
-    start: Date.parse(row.started_at),
-    end: row.ended_at ? Date.parse(row.ended_at) : null,
+function assertUniqueStart(startedAt: string, exceptId?: string): void {
+  const startedMs = Date.parse(startedAt)
+  const taken = orderedRows().some(
+    (row) => row.id !== exceptId && Date.parse(row.started_at) === startedMs,
+  )
+  if (taken) {
+    throw new ApiError("overlap", 409)
   }
-}
-
-function allSegments(): SegmentRow[] {
-  return getDb().prepare("SELECT * FROM status_segments").all() as SegmentRow[]
 }
 
 function upsertPhrase(text: string, usedAt: string): void {
@@ -88,34 +102,34 @@ function requireInstant(value: string, timeZone: string): string {
 }
 
 export function listStatus(limit: number): StatusSegment[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM status_segments ORDER BY started_at DESC LIMIT ?")
-    .all(limit) as SegmentRow[]
-  return rows.map(toSegment)
+  const segments = withEnds(orderedRows())
+  return segments.slice(Math.max(0, segments.length - limit)).reverse()
 }
 
-export function segmentsOverlapping(dayStartIso: string, dayEndIso: string): StatusSegment[] {
+export function segmentsOverlapping(
+  dayStartIso: string,
+  dayEndIso: string,
+  now: string,
+): StatusSegment[] {
   const startMs = Date.parse(dayStartIso)
   const endMs = Date.parse(dayEndIso)
-  return allSegments()
-    .filter((row) => {
-      const bounds = rowBounds(row)
-      return rangesOverlap(bounds.start, bounds.end, startMs, endMs)
-    })
-    .sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at))
-    .map(toSegment)
+  const nowMs = Date.parse(now)
+  return withEnds(orderedRows()).filter((segment) => covers(segment, startMs, endMs, nowMs))
 }
 
 export function currentStatus(now: string): StatusSegment | null {
   const nowMs = Date.parse(now)
-  const open = allSegments()
-    .filter((row) => row.ended_at === null && Date.parse(row.started_at) <= nowMs)
-    .sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at))
-  const row = open[0]
-  return row ? toSegment(row) : null
+  let current: StatusSegment | null = null
+  for (const segment of withEnds(orderedRows())) {
+    if (Date.parse(segment.startedAt) <= nowMs) {
+      current = segment
+    }
+  }
+  return current
 }
 
 export function createStatus(body: unknown): StatusSegment {
+  rejectEndedAt(body)
   const parsed = postSchema.safeParse(body)
   if (!parsed.success) {
     invalid()
@@ -133,35 +147,19 @@ export function createStatus(body: unknown): StatusSegment {
   const id = randomUUID()
   const db = getDb()
   const segment = db.transaction(() => {
-    const rows = allSegments()
-    const closers: string[] = []
-    for (const row of rows) {
-      const bounds = rowBounds(row)
-      if (!rangesOverlap(startedMs, null, bounds.start, bounds.end)) {
-        continue
-      }
-      if (row.ended_at === null && bounds.start < startedMs) {
-        closers.push(row.id)
-        continue
-      }
-      throw new ApiError("overlap", 409)
-    }
-    const close = db.prepare("UPDATE status_segments SET ended_at = ? WHERE id = ?")
-    for (const closerId of closers) {
-      close.run(startedAt, closerId)
-    }
+    assertUniqueStart(startedAt)
     db.prepare(
-      "INSERT INTO status_segments (id, level, content, started_at, ended_at) VALUES (?, ?, ?, ?, NULL)",
+      "INSERT INTO status_segments (id, level, content, started_at) VALUES (?, ?, ?, ?)",
     ).run(id, level, content, startedAt)
     upsertPhrase(content, nowIso(timeZone))
-    const row = db.prepare("SELECT * FROM status_segments WHERE id = ?").get(id) as SegmentRow
-    return toSegment(row)
+    return segmentById(id)
   })()
   publish("status")
   return segment
 }
 
 export function updateStatus(id: string, body: unknown): StatusSegment {
+  rejectEndedAt(body)
   const parsed = patchSchema.safeParse(body)
   if (!parsed.success) {
     invalid()
@@ -169,9 +167,9 @@ export function updateStatus(id: string, body: unknown): StatusSegment {
   const timeZone = statusTimeZone()
   const db = getDb()
   const segment = db.transaction(() => {
-    const current = db.prepare("SELECT * FROM status_segments WHERE id = ?").get(id) as
-      | SegmentRow
-      | undefined
+    const current = db
+      .prepare("SELECT id, level, content, started_at FROM status_segments WHERE id = ?")
+      .get(id) as SegmentRow | undefined
     if (!current) {
       throw new ApiError("not_found", 404)
     }
@@ -182,32 +180,17 @@ export function updateStatus(id: string, body: unknown): StatusSegment {
       parsed.data.startedAt === undefined
         ? current.started_at
         : requireInstant(parsed.data.startedAt, timeZone)
-    let endedAt = current.ended_at
-    if (parsed.data.endedAt !== undefined) {
-      endedAt = parsed.data.endedAt === null ? null : requireInstant(parsed.data.endedAt, timeZone)
-    }
-    const startedMs = Date.parse(startedAt)
-    const endedMs = endedAt ? Date.parse(endedAt) : null
-    if (endedMs !== null && endedMs <= startedMs) {
-      invalid()
-    }
-    for (const row of allSegments()) {
-      if (row.id === id) {
-        continue
-      }
-      const bounds = rowBounds(row)
-      if (rangesOverlap(startedMs, endedMs, bounds.start, bounds.end)) {
-        throw new ApiError("overlap", 409)
-      }
-    }
-    db.prepare(
-      "UPDATE status_segments SET level = ?, content = ?, started_at = ?, ended_at = ? WHERE id = ?",
-    ).run(level, content, startedAt, endedAt, id)
+    assertUniqueStart(startedAt, id)
+    db.prepare("UPDATE status_segments SET level = ?, content = ?, started_at = ? WHERE id = ?").run(
+      level,
+      content,
+      startedAt,
+      id,
+    )
     if (parsed.data.content !== undefined) {
       upsertPhrase(content, nowIso(timeZone))
     }
-    const row = db.prepare("SELECT * FROM status_segments WHERE id = ?").get(id) as SegmentRow
-    return toSegment(row)
+    return segmentById(id)
   })()
   publish("status")
   return segment

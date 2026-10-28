@@ -25,7 +25,11 @@ export async function loadToday(): Promise<TodayPayload> {
     now,
     day,
     current: payloadCurrent,
-    segments: segmentsOverlapping(formatIso(window.start, timeZone), formatIso(window.end, timeZone)),
+    segments: segmentsOverlapping(
+      formatIso(window.start, timeZone),
+      formatIso(window.end, timeZone),
+      now,
+    ),
     meals: mealsOnDay(day),
     events: eventsOnDay(day),
     sleep: sleepOn(day),

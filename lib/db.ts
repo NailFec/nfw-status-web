@@ -31,8 +31,7 @@ function migrate(db: Database.Database): void {
       id TEXT PRIMARY KEY,
       level TEXT NOT NULL CHECK (level IN ('very_free', 'free', 'doing', 'busy', 'afk')),
       content TEXT NOT NULL,
-      started_at TEXT NOT NULL,
-      ended_at TEXT
+      started_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS status_phrases (
@@ -109,6 +108,27 @@ function migrate(db: Database.Database): void {
   db.prepare(
     "INSERT INTO calendar_state (id, refreshed_at) SELECT 1, NULL WHERE NOT EXISTS (SELECT 1 FROM calendar_state WHERE id = 1)",
   ).run()
+  dropStoredStatusEnd(db)
+}
+
+function dropStoredStatusEnd(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(status_segments)").all() as { name: string }[]
+  if (!columns.some((column) => column.name === "ended_at")) {
+    return
+  }
+  const drop = db.transaction(() => {
+    const before = db
+      .prepare("SELECT id, level, content, started_at FROM status_segments ORDER BY id")
+      .all()
+    db.exec("ALTER TABLE status_segments DROP COLUMN ended_at")
+    const after = db
+      .prepare("SELECT id, level, content, started_at FROM status_segments ORDER BY id")
+      .all()
+    if (JSON.stringify(after) !== JSON.stringify(before)) {
+      throw new Error("Refusing to drop status end times because stored rows would change")
+    }
+  })
+  drop()
 }
 
 export function getDb(): Database.Database {

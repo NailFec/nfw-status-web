@@ -45,18 +45,41 @@ export function HorizontalScroll({
     if (!viewport) {
       return
     }
+    // A sideways component on a vertical wheel would slide the strip and
+    // drop the page scroll. Redirect that gesture. Leave a pure vertical
+    // wheel to the browser, and leave a horizontal wheel on the strip.
+    let verticalGesture = false
+    let timer = 0
     const onWheel = (event: WheelEvent) => {
       if (event.ctrlKey || event.metaKey || event.shiftKey) {
         return
       }
-      if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.deltaY === 0) {
+      const absX = Math.abs(event.deltaX)
+      const absY = Math.abs(event.deltaY)
+      if (absY > absX) {
+        verticalGesture = true
+      }
+      if (verticalGesture) {
+        window.clearTimeout(timer)
+        timer = window.setTimeout(() => {
+          verticalGesture = false
+        }, 160)
+      }
+      if (!verticalGesture || event.deltaY === 0 || event.deltaX === 0) {
         return
       }
-      window.scrollBy({ top: pageDelta(event), left: 0 })
+      const scroller = document.scrollingElement
+      if (!scroller) {
+        return
+      }
+      scroller.scrollTop += wheelDeltaY(event)
       event.preventDefault()
     }
     viewport.addEventListener("wheel", onWheel, { passive: false })
-    return () => viewport.removeEventListener("wheel", onWheel)
+    return () => {
+      window.clearTimeout(timer)
+      viewport.removeEventListener("wheel", onWheel)
+    }
   }, [])
 
   return (
@@ -109,7 +132,7 @@ export function HorizontalScroll({
   )
 }
 
-function pageDelta(event: WheelEvent): number {
+function wheelDeltaY(event: WheelEvent): number {
   if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
     return event.deltaY * 16
   }

@@ -7,6 +7,7 @@ import { SleepPanel } from "@/components/sleep-panel"
 import { TodayPanel } from "@/components/today-panel"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { withBasePath } from "@/lib/base-path"
 import type { LiveKind, Meal, SleepDay, TodayPayload } from "@/lib/types"
 
 export function StatusBoard({
@@ -22,7 +23,9 @@ export function StatusBoard({
   const [pending, setPending] = useState(false)
 
   const reload = useCallback(async (kind: LiveKind | "visible") => {
-    const todayResponse = await fetch("/api/today", { cache: "no-store" })
+    const todayResponse = await fetch(withBasePath("/api/today"), {
+      cache: "no-store",
+    })
     if (!todayResponse.ok) {
       throw new Error("today")
     }
@@ -31,7 +34,9 @@ export function StatusBoard({
     setNow(nextToday.now)
     if (kind === "meal" || kind === "visible") {
       const response = await fetch(
-        `/api/meals?before=${encodeURIComponent(nextToday.day)}&limit=60`,
+        withBasePath(
+          `/api/meals?before=${encodeURIComponent(nextToday.day)}&limit=60`,
+        ),
         { cache: "no-store" },
       )
       if (!response.ok) {
@@ -42,7 +47,9 @@ export function StatusBoard({
     }
     if (kind === "sleep" || kind === "visible") {
       const response = await fetch(
-        `/api/sleep?before=${encodeURIComponent(nextToday.day)}&limit=400`,
+        withBasePath(
+          `/api/sleep?before=${encodeURIComponent(nextToday.day)}&limit=400`,
+        ),
         { cache: "no-store" },
       )
       if (!response.ok) {
@@ -70,7 +77,7 @@ export function StatusBoard({
     let stopped = false
 
     const connect = () => {
-      source = new EventSource("/api/live")
+      source = new EventSource(withBasePath("/api/live"))
       source.addEventListener("update", (event) => {
         try {
           const data = JSON.parse(String((event as MessageEvent).data)) as { kind?: string }

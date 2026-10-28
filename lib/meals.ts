@@ -32,7 +32,9 @@ function loadPhotos(mealIds: string[]): Map<string, MealPhoto[]> {
   }
   const marks = mealIds.map(() => "?").join(", ")
   const rows = getDb()
-    .prepare(`SELECT id, meal_id, sort FROM meal_photos WHERE meal_id IN (${marks}) ORDER BY sort ASC, id ASC`)
+    .prepare(
+      `SELECT id, meal_id, sort FROM meal_photos WHERE meal_id IN (${marks}) ORDER BY sort ASC, id ASC`
+    )
     .all(...mealIds) as PhotoRow[]
   for (const row of rows) {
     const list = grouped.get(row.meal_id) ?? []
@@ -60,11 +62,24 @@ export function listMeals(before: string, limit: number): Meal[] {
        ORDER BY day DESC,
          CASE slot WHEN 'dinner' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END,
          eaten_at DESC
-       LIMIT ?`,
+       LIMIT ?`
     )
     .all(before, limit) as MealRow[]
   const photos = loadPhotos(rows.map((row) => row.id))
   return rows.map((row) => toMeal(row, photos.get(row.id) ?? []))
+}
+
+export function mealsBetween(startDay: string, endDay: string): Meal[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, day, slot, eaten_at FROM meals
+       WHERE day >= ? AND day <= ?
+       ORDER BY day ASC,
+         CASE slot WHEN 'breakfast' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END,
+         eaten_at ASC`
+    )
+    .all(startDay, endDay) as MealRow[]
+  return rows.map((row) => toMeal(row, []))
 }
 
 export function mealsOnDay(day: string): Meal[] {
@@ -72,7 +87,7 @@ export function mealsOnDay(day: string): Meal[] {
     .prepare(
       `SELECT id, day, slot, eaten_at FROM meals
        WHERE day = ?
-       ORDER BY CASE slot WHEN 'breakfast' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END`,
+       ORDER BY CASE slot WHEN 'breakfast' THEN 0 WHEN 'lunch' THEN 1 ELSE 2 END`
     )
     .all(day) as MealRow[]
   const photos = loadPhotos(rows.map((row) => row.id))
@@ -80,9 +95,9 @@ export function mealsOnDay(day: string): Meal[] {
 }
 
 function getMealRow(id: string): MealRow | undefined {
-  return getDb().prepare("SELECT id, day, slot, eaten_at FROM meals WHERE id = ?").get(id) as
-    | MealRow
-    | undefined
+  return getDb()
+    .prepare("SELECT id, day, slot, eaten_at FROM meals WHERE id = ?")
+    .get(id) as MealRow | undefined
 }
 
 function mealById(id: string): Meal {
@@ -94,7 +109,9 @@ function mealById(id: string): Meal {
   return toMeal(row, photos)
 }
 
-async function collectPhotos(form: FormData): Promise<{ mime: string; ext: string; bytes: Buffer }[]> {
+async function collectPhotos(
+  form: FormData
+): Promise<{ mime: string; ext: string; bytes: Buffer }[]> {
   const photos = []
   for (const entry of form.getAll("photo")) {
     if (!(entry instanceof File)) {
@@ -158,15 +175,14 @@ export async function createMeal(form: FormData): Promise<Meal> {
     }
     const db = getDb()
     db.transaction(() => {
-      db.prepare("INSERT INTO meals (id, day, slot, eaten_at) VALUES (?, ?, ?, ?)").run(
-        id,
-        day,
-        slot,
-        eatenAt,
+      db.prepare(
+        "INSERT INTO meals (id, day, slot, eaten_at) VALUES (?, ?, ?, ?)"
+      ).run(id, day, slot, eatenAt)
+      const insertMedia = db.prepare(
+        "INSERT INTO media (id, path, mime) VALUES (?, ?, ?)"
       )
-      const insertMedia = db.prepare("INSERT INTO media (id, path, mime) VALUES (?, ?, ?)")
       const insertPhoto = db.prepare(
-        "INSERT INTO meal_photos (id, meal_id, sort) VALUES (?, ?, ?)",
+        "INSERT INTO meal_photos (id, meal_id, sort) VALUES (?, ?, ?)"
       )
       images.forEach((image, index) => {
         const photo = saved[index]
@@ -222,12 +238,15 @@ export async function updateMeal(id: string, form: FormData): Promise<Meal> {
     ...new Set(
       form
         .getAll("removePhotoIds")
-        .filter((value): value is string => typeof value === "string" && value.length > 0),
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.length > 0
+        )
     ),
   ]
   const owned = getDb()
     .prepare(
-      "SELECT meal_photos.id AS id, media.path AS path FROM meal_photos JOIN media ON media.id = meal_photos.id WHERE meal_photos.meal_id = ?",
+      "SELECT meal_photos.id AS id, media.path AS path FROM meal_photos JOIN media ON media.id = meal_photos.id WHERE meal_photos.meal_id = ?"
     )
     .all(id) as { id: string; path: string }[]
   const ownedIds = new Set(owned.map((photo) => photo.id))
@@ -247,24 +266,27 @@ export async function updateMeal(id: string, form: FormData): Promise<Meal> {
     }
     const db = getDb()
     db.transaction(() => {
-      db.prepare("UPDATE meals SET day = ?, slot = ?, eaten_at = ? WHERE id = ?").run(
-        day,
-        slot,
-        eatenAt,
-        id,
-      )
+      db.prepare(
+        "UPDATE meals SET day = ?, slot = ?, eaten_at = ? WHERE id = ?"
+      ).run(day, slot, eatenAt, id)
       if (removeIds.length > 0) {
         const marks = removeIds.map(() => "?").join(", ")
-        db.prepare(`DELETE FROM meal_photos WHERE meal_id = ? AND id IN (${marks})`).run(id, ...removeIds)
+        db.prepare(
+          `DELETE FROM meal_photos WHERE meal_id = ? AND id IN (${marks})`
+        ).run(id, ...removeIds)
         db.prepare(`DELETE FROM media WHERE id IN (${marks})`).run(...removeIds)
       }
       const sortRow = db
-        .prepare("SELECT COALESCE(MAX(sort), -1) AS sort FROM meal_photos WHERE meal_id = ?")
+        .prepare(
+          "SELECT COALESCE(MAX(sort), -1) AS sort FROM meal_photos WHERE meal_id = ?"
+        )
         .get(id) as { sort: number }
       let sort = sortRow.sort
-      const insertMedia = db.prepare("INSERT INTO media (id, path, mime) VALUES (?, ?, ?)")
+      const insertMedia = db.prepare(
+        "INSERT INTO media (id, path, mime) VALUES (?, ?, ?)"
+      )
       const insertPhoto = db.prepare(
-        "INSERT INTO meal_photos (id, meal_id, sort) VALUES (?, ?, ?)",
+        "INSERT INTO meal_photos (id, meal_id, sort) VALUES (?, ?, ?)"
       )
       for (const photo of saved) {
         sort += 1
@@ -301,7 +323,7 @@ export function deleteMeal(id: string): void {
   const db = getDb()
   const photos = db
     .prepare(
-      "SELECT meal_photos.id AS id, media.path AS path FROM meal_photos JOIN media ON media.id = meal_photos.id WHERE meal_id = ?",
+      "SELECT meal_photos.id AS id, media.path AS path FROM meal_photos JOIN media ON media.id = meal_photos.id WHERE meal_id = ?"
     )
     .all(id) as { id: string; path: string }[]
   const result = db.transaction(() => {

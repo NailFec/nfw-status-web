@@ -43,15 +43,14 @@ export function StatusSkeleton() {
           <Skeleton className="h-5 w-16" />
         </CardHeader>
         <CardContent>
-          <Skeleton className="h-44 w-full" />
-          <Skeleton className="h-40 w-full" />
           <div className="flex items-center justify-between gap-3">
             <Skeleton className="h-8 w-24" />
             <Skeleton className="h-5 w-20" />
             <Skeleton className="h-8 w-24" />
           </div>
           <Skeleton className="h-12 w-full" />
-          <Skeleton className="h-48 w-full" />
+          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-44 w-full" />
         </CardContent>
       </Card>
     </div>

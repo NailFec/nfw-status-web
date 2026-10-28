@@ -78,7 +78,7 @@ function migrate(db: Database.Database): void {
       end_at TEXT NOT NULL,
       all_day INTEGER NOT NULL,
       day TEXT NOT NULL,
-      UNIQUE (subscription_id, uid, start_at)
+      UNIQUE (subscription_id, uid, start_at, day)
     );
 
     CREATE TABLE IF NOT EXISTS calendar_state (
@@ -106,9 +106,48 @@ function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_events_day ON calendar_events (day);
     CREATE INDEX IF NOT EXISTS idx_screenshots_date ON sleep_screenshots (date);
   `)
+  rebuildCalendarEvents(db)
   db.prepare(
-    "INSERT INTO calendar_state (id, refreshed_at) SELECT 1, NULL WHERE NOT EXISTS (SELECT 1 FROM calendar_state WHERE id = 1)",
+    "INSERT INTO calendar_state (id, refreshed_at) SELECT 1, NULL WHERE NOT EXISTS (SELECT 1 FROM calendar_state WHERE id = 1)"
   ).run()
+}
+
+function rebuildCalendarEvents(db: Database.Database): void {
+  const row = db
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'calendar_events'"
+    )
+    .get() as { sql: string } | undefined
+  if (!row) {
+    return
+  }
+  const compact = row.sql.replace(/\s+/g, " ").toLowerCase()
+  if (compact.includes("unique (subscription_id, uid, start_at, day)")) {
+    return
+  }
+  db.pragma("foreign_keys = OFF")
+  try {
+    db.exec(`
+      CREATE TABLE calendar_events_next (
+        id TEXT PRIMARY KEY,
+        subscription_id TEXT NOT NULL REFERENCES calendar_subscriptions(id) ON DELETE CASCADE,
+        uid TEXT NOT NULL,
+        title TEXT NOT NULL,
+        start_at TEXT NOT NULL,
+        end_at TEXT NOT NULL,
+        all_day INTEGER NOT NULL,
+        day TEXT NOT NULL,
+        UNIQUE (subscription_id, uid, start_at, day)
+      );
+      INSERT INTO calendar_events_next (id, subscription_id, uid, title, start_at, end_at, all_day, day)
+        SELECT id, subscription_id, uid, title, start_at, end_at, all_day, day FROM calendar_events;
+      DROP TABLE calendar_events;
+      ALTER TABLE calendar_events_next RENAME TO calendar_events;
+      CREATE INDEX IF NOT EXISTS idx_events_day ON calendar_events (day);
+    `)
+  } finally {
+    db.pragma("foreign_keys = ON")
+  }
 }
 
 export function getDb(): Database.Database {

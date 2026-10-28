@@ -6,7 +6,13 @@ export const SLOTS = ["breakfast", "lunch", "dinner"] as const
 
 export type Slot = (typeof SLOTS)[number]
 
-export const SLEEP_STAGES = ["awake", "light", "deep", "rem", "unknown"] as const
+export const SLEEP_STAGES = [
+  "awake",
+  "light",
+  "deep",
+  "rem",
+  "unknown",
+] as const
 
 export type SleepStageName = (typeof SLEEP_STAGES)[number]
 
@@ -55,19 +61,19 @@ export type SleepStage = {
   end: string
 }
 
-export type SleepScreenshot = {
-  id: string
-  url: string
-  createdAt: string
-}
-
 export type SleepDay = {
   date: string
   bedtime: string | null
   wakeTime: string | null
   durationMinutes: number | null
   stages: SleepStage[]
-  screenshots: SleepScreenshot[]
+}
+
+export type DayTimeline = {
+  day: string
+  segments: StatusSegment[]
+  meals: Meal[]
+  events: CalendarEventView[]
 }
 
 export type TodayPayload = {
@@ -79,6 +85,7 @@ export type TodayPayload = {
   meals: Meal[]
   events: CalendarEventView[]
   sleep: SleepDay | null
+  history: DayTimeline[]
 }
 
 export type Phrase = {

@@ -1,17 +1,14 @@
 import { assertWriter } from "@/lib/auth"
+import { refreshCalendars } from "@/lib/calendar"
 import { handle } from "@/lib/errors"
-import { deleteScreenshot } from "@/lib/sleep"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-type Context = { params: Promise<{ id: string }> }
-
-export function DELETE(request: Request, context: Context) {
+export function POST(request: Request) {
   return handle(async () => {
     assertWriter(request)
-    const { id } = await context.params
-    deleteScreenshot(id)
+    await refreshCalendars()
     return new Response(null, { status: 204 })
   })
 }

@@ -30,13 +30,21 @@ export function zonedParts(date: Date, timeZone: string): ZonedParts {
     }
   }
   let hour = map.hour ?? "00"
+  let year = map.year ?? "0000"
+  let month = map.month ?? "01"
+  let day = map.day ?? "01"
   if (hour === "24") {
     hour = "00"
+    const rolled = addDays(`${year}-${month}-${day}`, 1)
+    const [nextYear, nextMonth, nextDay] = rolled.split("-")
+    year = nextYear ?? year
+    month = nextMonth ?? month
+    day = nextDay ?? day
   }
   return {
-    year: map.year ?? "0000",
-    month: map.month ?? "01",
-    day: map.day ?? "01",
+    year,
+    month,
+    day,
     hour,
     minute: map.minute ?? "00",
     second: map.second ?? "00",
@@ -51,7 +59,7 @@ export function offsetMs(date: Date, timeZone: string): number {
     Number(parts.day),
     Number(parts.hour),
     Number(parts.minute),
-    Number(parts.second),
+    Number(parts.second)
   )
   const truncated = Math.floor(date.getTime() / 1000) * 1000
   return wall - truncated
@@ -63,7 +71,10 @@ export function formatIso(date: Date, timeZone: string): string {
   const sign = offset >= 0 ? "+" : "-"
   const absolute = Math.abs(offset)
   const hours = String(Math.floor(absolute / 3_600_000)).padStart(2, "0")
-  const minutes = String(Math.floor((absolute % 3_600_000) / 60_000)).padStart(2, "0")
+  const minutes = String(Math.floor((absolute % 3_600_000) / 60_000)).padStart(
+    2,
+    "0"
+  )
   return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}${sign}${hours}:${minutes}`
 }
 
@@ -112,7 +123,10 @@ export function zonedMidnight(day: string, timeZone: string): Date {
   return new Date(instant)
 }
 
-export function dayWindow(day: string, timeZone: string): { start: Date; end: Date } {
+export function dayWindow(
+  day: string,
+  timeZone: string
+): { start: Date; end: Date } {
   return {
     start: zonedMidnight(day, timeZone),
     end: zonedMidnight(addDays(day, 1), timeZone),

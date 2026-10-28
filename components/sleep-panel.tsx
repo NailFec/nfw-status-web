@@ -47,7 +47,7 @@ export function SleepPanel({
   const day = days[index]
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader>
         <CardTitle>
           <h2>Sleep</h2>

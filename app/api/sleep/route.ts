@@ -11,7 +11,11 @@ export function GET(request: Request) {
   return handle(async () => {
     const params = new URL(request.url).searchParams
     const before = parseBefore(params.get("before"), todayKey())
-    const limit = parseLimit(params.get("limit"), 30, 500)
+    const rawLimit = params.get("limit")
+    const limit =
+      rawLimit == null || rawLimit === ""
+        ? undefined
+        : parseLimit(rawLimit, 30, 500)
     return Response.json({ days: listSleep(before, limit) })
   })
 }

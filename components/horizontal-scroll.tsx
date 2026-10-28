@@ -1,6 +1,6 @@
 "use client"
 
-import { useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { cn } from "@/lib/utils"
 
@@ -39,6 +39,25 @@ export function HorizontalScroll({
     observer.observe(viewport)
     return () => observer.disconnect()
   }, [pinKey])
+
+  useEffect(() => {
+    const viewport = ref.current
+    if (!viewport) {
+      return
+    }
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey) {
+        return
+      }
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY) || event.deltaY === 0) {
+        return
+      }
+      window.scrollBy({ top: pageDelta(event), left: 0 })
+      event.preventDefault()
+    }
+    viewport.addEventListener("wheel", onWheel, { passive: false })
+    return () => viewport.removeEventListener("wheel", onWheel)
+  }, [])
 
   return (
     <div
@@ -88,4 +107,14 @@ export function HorizontalScroll({
       {children}
     </div>
   )
+}
+
+function pageDelta(event: WheelEvent): number {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+    return event.deltaY * 16
+  }
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return event.deltaY * window.innerHeight
+  }
+  return event.deltaY
 }

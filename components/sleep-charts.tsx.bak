@@ -1,0 +1,276 @@
+"use client"
+
+import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
+
+import { HorizontalScroll } from "@/components/horizontal-scroll"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
+import { formatDayLabel, formatDuration } from "@/lib/format"
+import { stageClass } from "@/lib/labels"
+import { addDays, zonedMidnight } from "@/lib/time"
+import type { SleepDay, SleepStageName } from "@/lib/types"
+import { cn } from "@/lib/utils"
+
+const windowDays = 50
+const axisStartHour = 18
+const axisEndHour = 12
+
+const durationConfig = {
+  minutes: {
+    label: "Duration",
+    color: "var(--chart-1)",
+  },
+} satisfies ChartConfig
+
+type Slice = {
+  stage: SleepStageName
+  top: number
+  height: number
+}
+
+type Point = {
+  date: string
+  label: string
+  minutes: number | null
+  slices: Slice[]
+  record: SleepDay | null
+}
+
+export function SleepCharts({
+  days,
+  timeZone,
+  today,
+  selected,
+  onSelect,
+}: {
+  days: SleepDay[]
+  timeZone: string
+  today: string
+  selected: string
+  onSelect: (date: string) => void
+}) {
+  const series = buildSeries(days, today, timeZone)
+  const width = `${(series.length / windowDays) * 100}%`
+
+  return (
+    <HorizontalScroll label="Sleep history" pinned pinKey={series.length}>
+      <div className="flex min-w-full flex-col gap-4 p-1" style={{ width }}>
+        <h3 className="sticky left-0 w-fit font-medium">Range</h3>
+        <RangeChart series={series} selected={selected} onSelect={onSelect} />
+        <h3 className="sticky left-0 w-fit font-medium">Duration</h3>
+        <ChartContainer
+          config={durationConfig}
+          className="aspect-auto! h-44 w-full"
+          initialDimension={{ width: 960, height: 176 }}
+          aria-label="Sleep duration"
+        >
+          <LineChart
+            data={series}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+          >
+            <CartesianGrid vertical={false} />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={28}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              width={36}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(value: number) => `${Math.round(value / 60)}h`}
+            />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  formatter={(value) => (
+                    <span className="tabular-nums">
+                      {formatDuration(Number(value))}
+                    </span>
+                  )}
+                />
+              }
+            />
+            <Line
+              type="linear"
+              dataKey="minutes"
+              stroke="var(--color-minutes)"
+              strokeWidth={2}
+              dot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ChartContainer>
+      </div>
+    </HorizontalScroll>
+  )
+}
+
+function RangeChart({
+  series,
+  selected,
+  onSelect,
+}: {
+  series: Point[]
+  selected: string
+  onSelect: (date: string) => void
+}) {
+  return (
+    <div
+      className="flex flex-col gap-2 pr-2"
+      role="group"
+      aria-label="Sleep range"
+    >
+      <div className="flex">
+        <div className="flex h-40 w-9 shrink-0 flex-col justify-between text-xs text-muted-foreground tabular-nums">
+          <span>6 PM</span>
+          <span>12 AM</span>
+          <span>6 AM</span>
+          <span>12 PM</span>
+        </div>
+        <div
+          className="grid h-40 min-w-0 flex-1"
+          style={{
+            gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))`,
+          }}
+        >
+          {series.map((point) => {
+            const label = point.record
+              ? `${point.label}, ${point.minutes == null ? "No duration" : formatDuration(point.minutes)}`
+              : `${point.label}, No sleep`
+            const className = cn(
+              "relative h-40 min-w-0 border-l border-border/60",
+              selected === point.date && "bg-muted"
+            )
+            if (!point.record) {
+              return (
+                <div
+                  key={point.date}
+                  className={className}
+                  aria-label={label}
+                />
+              )
+            }
+            return (
+              <button
+                key={point.date}
+                type="button"
+                className={cn(
+                  className,
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                )}
+                aria-label={label}
+                aria-pressed={selected === point.date}
+                onClick={() => onSelect(point.date)}
+              >
+                {point.slices.map((slice, index) => (
+                  <span
+                    key={`${slice.stage}-${index}`}
+                    aria-hidden
+                    className={cn(
+                      "absolute inset-x-0.5",
+                      stageClass[slice.stage]
+                    )}
+                    style={{
+                      top: `${slice.top}%`,
+                      height: `${Math.max(slice.height, 1)}%`,
+                    }}
+                  />
+                ))}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="flex">
+        <div className="w-9 shrink-0" aria-hidden />
+        <div
+          className="grid min-w-0 flex-1"
+          style={{
+            gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))`,
+          }}
+        >
+          {series.map((point, index) => {
+            const show = index === series.length - 1 || index % 5 === 0
+            return (
+              <span
+                key={point.date}
+                className="truncate text-center text-xs text-muted-foreground tabular-nums"
+              >
+                {show ? point.label : ""}
+              </span>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function buildSeries(
+  days: SleepDay[],
+  today: string,
+  timeZone: string
+): Point[] {
+  const byDate = new Map(days.map((day) => [day.date, day]))
+  const earliest = days.reduce<string | null>(
+    (soonest, day) =>
+      soonest == null || day.date < soonest ? day.date : soonest,
+    null
+  )
+  let start = addDays(today, -(windowDays - 1))
+  if (earliest && earliest < start) {
+    start = earliest
+  }
+  const series: Point[] = []
+  for (let date = start; date <= today; date = addDays(date, 1)) {
+    const record = byDate.get(date) ?? null
+    series.push({
+      date,
+      label: formatDayLabel(date, timeZone, today),
+      minutes: record?.durationMinutes ?? null,
+      slices: record ? slicesFor(record, date, timeZone) : [],
+      record,
+    })
+  }
+  return series
+}
+
+function slicesFor(day: SleepDay, date: string, timeZone: string): Slice[] {
+  const axisStart =
+    zonedMidnight(addDays(date, -1), timeZone).getTime() +
+    axisStartHour * 3_600_000
+  const axisEnd =
+    zonedMidnight(date, timeZone).getTime() + axisEndHour * 3_600_000
+  const span = axisEnd - axisStart
+  if (!(span > 0)) {
+    return []
+  }
+  const segments =
+    day.stages.length > 0
+      ? day.stages
+      : day.bedtime && day.wakeTime
+        ? [{ stage: "unknown" as const, start: day.bedtime, end: day.wakeTime }]
+        : []
+  return segments.flatMap((segment) => {
+    const start = Math.max(Date.parse(segment.start), axisStart)
+    const end = Math.min(Date.parse(segment.end), axisEnd)
+    if (!(end > start)) {
+      return []
+    }
+    return [
+      {
+        stage: segment.stage,
+        top: ((start - axisStart) / span) * 100,
+        height: ((end - start) / span) * 100,
+      },
+    ]
+  })
+}

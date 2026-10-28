@@ -49,7 +49,7 @@ export function StatusBoard({
     if (kind === "sleep" || kind === "visible") {
       const response = await fetch(
         withBasePath(
-          `/api/sleep?before=${encodeURIComponent(nextToday.day)}&limit=400`
+          `/api/sleep?before=${encodeURIComponent(nextToday.day)}`
         ),
         { cache: "no-store" }
       )

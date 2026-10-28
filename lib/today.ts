@@ -21,7 +21,6 @@ import type {
 } from "@/lib/types"
 
 const historyDays = 30
-const maxHistoryDays = 90
 
 function earliestStoredDay(): string | null {
   const db = getDb()
@@ -51,21 +50,17 @@ function earliestStoredDay(): string | null {
 
 function historyStart(today: string): string {
   const standard = addDays(today, -(historyDays - 1))
-  const cap = addDays(today, -(maxHistoryDays - 1))
   const earliest = earliestStoredDay()
   if (!earliest || earliest >= standard) {
     return standard
   }
-  return earliest < cap ? cap : earliest
+  return earliest
 }
 
 function dayList(start: string, end: string): string[] {
   const days: string[] = []
   for (let day = start; day <= end; day = addDays(day, 1)) {
     days.push(day)
-    if (days.length > maxHistoryDays) {
-      break
-    }
   }
   return days
 }

@@ -1,9 +1,8 @@
 "use client"
 
-import { useLayoutEffect, useRef } from "react"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { HorizontalScroll } from "@/components/horizontal-scroll"
 import {
   ChartContainer,
   ChartTooltip,
@@ -16,7 +15,7 @@ import { addDays, zonedMidnight } from "@/lib/time"
 import type { SleepDay, SleepStageName } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-const windowDays = 50
+const windowDays = 30
 const axisStartHour = 18
 const axisEndHour = 12
 
@@ -54,81 +53,63 @@ export function SleepCharts({
   selected: string
   onSelect: (date: string) => void
 }) {
-  const rootRef = useRef<HTMLDivElement>(null)
-  const pinned = useRef(false)
   const series = buildSeries(days, today, timeZone)
   const width = `${(series.length / windowDays) * 100}%`
 
-  useLayoutEffect(() => {
-    if (pinned.current || series.length === 0) {
-      return
-    }
-    const viewport = rootRef.current?.querySelector<HTMLElement>(
-      "[data-slot='scroll-area-viewport']"
-    )
-    if (!viewport) {
-      return
-    }
-    viewport.scrollLeft = viewport.scrollWidth
-    pinned.current = true
-  }, [series.length])
-
   return (
-    <div ref={rootRef}>
-      <ScrollArea label="Sleep history" className="w-full">
-        <div className="flex min-w-full flex-col gap-4 p-1" style={{ width }}>
-          <h3 className="sticky left-0 w-fit font-medium">Range</h3>
-          <RangeChart series={series} selected={selected} onSelect={onSelect} />
-          <h3 className="sticky left-0 w-fit font-medium">Duration</h3>
-          <ChartContainer
-            config={durationConfig}
-            className="aspect-auto! h-44 w-full"
-            initialDimension={{ width: 960, height: 176 }}
-            aria-label="Sleep duration"
+    <HorizontalScroll label="Sleep history" pinned pinKey={series.length}>
+      <div className="flex min-w-full flex-col gap-4 p-1" style={{ width }}>
+        <h3 className="sticky left-0 w-fit font-medium">Range</h3>
+        <RangeChart series={series} selected={selected} onSelect={onSelect} />
+        <h3 className="sticky left-0 w-fit font-medium">Duration</h3>
+        <ChartContainer
+          config={durationConfig}
+          className="aspect-auto! h-44 w-full"
+          initialDimension={{ width: 960, height: 176 }}
+          aria-label="Sleep duration"
+        >
+          <LineChart
+            data={series}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
           >
-            <LineChart
-              data={series}
-              margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-            >
-              <CartesianGrid vertical={false} />
-              <XAxis
-                dataKey="label"
-                tickLine={false}
-                axisLine={false}
-                minTickGap={28}
-                interval="preserveStartEnd"
-              />
-              <YAxis
-                width={36}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(value: number) => `${Math.round(value / 60)}h`}
-              />
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    formatter={(value) => (
-                      <span className="tabular-nums">
-                        {formatDuration(Number(value))}
-                      </span>
-                    )}
-                  />
-                }
-              />
-              <Line
-                type="linear"
-                dataKey="minutes"
-                stroke="var(--color-minutes)"
-                strokeWidth={2}
-                dot={false}
-                connectNulls={false}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ChartContainer>
-        </div>
-      </ScrollArea>
-    </div>
+            <CartesianGrid vertical={false} />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              minTickGap={28}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              width={36}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(value: number) => `${Math.round(value / 60)}h`}
+            />
+            <ChartTooltip
+              content={
+                <ChartTooltipContent
+                  formatter={(value) => (
+                    <span className="tabular-nums">
+                      {formatDuration(Number(value))}
+                    </span>
+                  )}
+                />
+              }
+            />
+            <Line
+              type="linear"
+              dataKey="minutes"
+              stroke="var(--color-minutes)"
+              strokeWidth={2}
+              dot={false}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ChartContainer>
+      </div>
+    </HorizontalScroll>
   )
 }
 

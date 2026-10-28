@@ -90,15 +90,16 @@ export function sleepOn(date: string): SleepDay | null {
   }
 }
 
-export function listSleep(before: string, limit: number): SleepDay[] {
+export function listSleep(before: string, limit?: number): SleepDay[] {
+  const limited = limit != null
   const rows = getDb()
     .prepare(
       `SELECT date FROM sleep_days
        WHERE date <= ?
        ORDER BY date DESC
-       LIMIT ?`,
+       ${limited ? "LIMIT ?" : ""}`,
     )
-    .all(before, limit) as { date: string }[]
+    .all(...(limited ? [before, limit] : [before])) as { date: string }[]
   return rows.flatMap((row) => {
     const day = sleepOn(row.date)
     return day ? [day] : []

@@ -3,6 +3,7 @@
 import { HorizontalScroll } from "@/components/horizontal-scroll"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
+import { BASE_PATH, withBasePath } from "@/lib/base-path"
 import { formatDayLabel, formatTime } from "@/lib/format"
 import { slotLabel } from "@/lib/labels"
 import type { Meal } from "@/lib/types"
@@ -57,7 +58,7 @@ export function MealStrip({
                         {meal.photos.map((photo) => (
                           <img
                             key={photo.id}
-                            src={photo.url}
+                            src={photoSrc(photo.url)}
                             alt={`${slotLabel[meal.slot]}, ${dateLabel}`}
                             width={160}
                             height={160}
@@ -82,4 +83,14 @@ export function MealStrip({
       </CardContent>
     </Card>
   )
+}
+
+function photoSrc(url: string): string {
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url
+  }
+  if (url === BASE_PATH || url.startsWith(`${BASE_PATH}/`)) {
+    return url
+  }
+  return withBasePath(url)
 }

@@ -1,7 +1,11 @@
 "use client"
 
-import { HorizontalScroll } from "@/components/horizontal-scroll"
+import { useEffect, useMemo, useState } from "react"
+import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
+
+import { dayHasRecord, StatusRangeChart } from "@/components/status-range-chart"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import {
@@ -35,18 +39,93 @@ export function TodayPanel({
   today: TodayPayload
   now: string
 }) {
+  const recorded = useMemo(
+    () => today.history.filter(dayHasRecord).reverse(),
+    [today.history]
+  )
+  const [selected, setSelected] = useState(recorded[0]?.day ?? "")
+
+  useEffect(() => {
+    setSelected((current) => {
+      if (current && recorded.some((day) => day.day === current)) {
+        return current
+      }
+      return recorded[0]?.day ?? ""
+    })
+  }, [recorded])
+
+  const index = Math.max(
+    0,
+    recorded.findIndex((day) => day.day === selected)
+  )
+  const item = recorded[index]
+
   return (
     <TooltipProvider delay={0}>
-      <div className="flex flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-6">
         <CurrentStatus today={today} />
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>
-              <h2>Today</h2>
+              <h2>Status</h2>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <DayStrip today={today} now={now} />
+            {!item ? (
+              <Empty className="px-6 py-8">
+                <EmptyHeader>
+                  <EmptyTitle>No status</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const next = recorded[index + 1]
+                      if (next) {
+                        setSelected(next.day)
+                      }
+                    }}
+                    disabled={index >= recorded.length - 1}
+                  >
+                    <ChevronLeftIcon data-icon="inline-start" />
+                    Older
+                  </Button>
+                  <p className="text-sm font-medium tabular-nums">
+                    {formatDayLabel(item.day, today.timezone, today.day)}
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const next = recorded[index - 1]
+                      if (next) {
+                        setSelected(next.day)
+                      }
+                    }}
+                    disabled={index <= 0}
+                  >
+                    Newer
+                    <ChevronRightIcon data-icon="inline-end" />
+                  </Button>
+                </div>
+                <Timeline
+                  item={item}
+                  timeZone={today.timezone}
+                  now={now}
+                  label={formatDayLabel(item.day, today.timezone, today.day)}
+                />
+              </div>
+            )}
+            <StatusRangeChart
+              history={today.history}
+              timeZone={today.timezone}
+              today={today.day}
+              now={now}
+              selected={selected}
+              onSelect={setSelected}
+            />
           </CardContent>
         </Card>
       </div>
@@ -95,51 +174,6 @@ function CurrentStatus({ today }: { today: TodayPayload }) {
         </div>
       </CardHeader>
     </Card>
-  )
-}
-
-function DayStrip({ today, now }: { today: TodayPayload; now: string }) {
-  const history =
-    today.history.length > 0
-      ? today.history
-      : [
-          {
-            day: today.day,
-            segments: today.segments,
-            meals: today.meals,
-            events: today.events,
-          },
-        ]
-  const latest = history[history.length - 1]?.day ?? today.day
-  return (
-    <HorizontalScroll
-      label="Days"
-      pinned
-      pinKey={`${latest}:${history.length}`}
-      pageScroll
-      className="flex snap-x snap-mandatory"
-    >
-      {history.map((item) => {
-        const label = formatDayLabel(item.day, today.timezone, today.day)
-        return (
-          <section
-            key={item.day}
-            aria-label={label}
-            className="w-full shrink-0 snap-start"
-          >
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium tabular-nums">{label}</p>
-              <Timeline
-                item={item}
-                timeZone={today.timezone}
-                now={now}
-                label={label}
-              />
-            </div>
-          </section>
-        )
-      })}
-    </HorizontalScroll>
   )
 }
 

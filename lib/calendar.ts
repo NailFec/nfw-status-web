@@ -8,8 +8,10 @@ import { ApiError, invalid } from "@/lib/errors"
 import { publish } from "@/lib/live"
 import {
   addDays,
+  dayKey,
   formatIso,
   nowIso,
+  parseInstant,
   statusTimeZone,
   todayKey,
   zonedMidnight,
@@ -31,6 +33,7 @@ type EventRow = {
   start_at: string
   end_at: string
   all_day: number
+  day: string
   calendar_name: string
 }
 
@@ -136,7 +139,11 @@ type StoredEvent = {
   allDay: number
 }
 
-function instancesForToday(event: VEvent, day: string, timeZone: string): StoredEvent[] {
+function instancesForToday(
+  event: VEvent,
+  day: string,
+  timeZone: string
+): StoredEvent[] {
   const window = {
     start: zonedMidnight(day, timeZone),
     end: zonedMidnight(addDays(day, 1), timeZone),
@@ -155,7 +162,11 @@ function instancesForToday(event: VEvent, day: string, timeZone: string): Stored
   }
   const stored: StoredEvent[] = []
   for (const instance of instances) {
-    if (isCancelled(instance.event.status) || !(instance.start instanceof Date) || !(instance.end instanceof Date)) {
+    if (
+      isCancelled(instance.event.status) ||
+      !(instance.start instanceof Date) ||
+      !(instance.end instanceof Date)
+    ) {
       continue
     }
     const title = plainText(instance.summary).trim() || "Untitled"
@@ -211,10 +222,16 @@ async function fetchCalendar(url: string): Promise<string> {
       },
     })
   } catch (error) {
-    if (error instanceof CalendarHttpError || error instanceof CalendarParseError) {
+    if (
+      error instanceof CalendarHttpError ||
+      error instanceof CalendarParseError
+    ) {
       throw error
     }
-    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+    if (
+      error instanceof Error &&
+      (error.name === "TimeoutError" || error.name === "AbortError")
+    ) {
       throw error
     }
     throw new Error("fetch failed")
@@ -225,7 +242,11 @@ async function fetchCalendar(url: string): Promise<string> {
   return response.text()
 }
 
-function eventsFromIcs(text: string, day: string, timeZone: string): StoredEvent[] {
+function eventsFromIcs(
+  text: string,
+  day: string,
+  timeZone: string
+): StoredEvent[] {
   if (!/BEGIN:VCALENDAR/i.test(text)) {
     throw new CalendarParseError()
   }
@@ -257,15 +278,22 @@ function eventsFromIcs(text: string, day: string, timeZone: string): StoredEvent
   return collected
 }
 
-function replaceSubscriptionDay(subscriptionId: string, day: string, events: StoredEvent[], okAt: string): void {
+function replaceSubscriptionDay(
+  subscriptionId: string,
+  day: string,
+  events: StoredEvent[],
+  okAt: string
+): void {
   const db = getDb()
   const insert = db.prepare(
     `INSERT INTO calendar_events
       (id, subscription_id, uid, title, start_at, end_at, all_day, day)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
   db.transaction(() => {
-    db.prepare("DELETE FROM calendar_events WHERE subscription_id = ? AND day = ?").run(subscriptionId, day)
+    db.prepare(
+      "DELETE FROM calendar_events WHERE subscription_id = ? AND day = ?"
+    ).run(subscriptionId, day)
     for (const event of events) {
       insert.run(
         randomUUID(),
@@ -275,11 +303,11 @@ function replaceSubscriptionDay(subscriptionId: string, day: string, events: Sto
         event.startAt,
         event.endAt,
         event.allDay,
-        day,
+        day
       )
     }
     db.prepare(
-      "UPDATE calendar_subscriptions SET last_ok_at = ?, last_error = NULL WHERE id = ?",
+      "UPDATE calendar_subscriptions SET last_ok_at = ?, last_error = NULL WHERE id = ?"
     ).run(okAt, subscriptionId)
   })()
 }
@@ -290,7 +318,11 @@ function recordFailure(subscriptionId: string, message: string): void {
     .run(message, subscriptionId)
 }
 
-async function refreshSubscription(row: SubscriptionRow, day: string, timeZone: string): Promise<void> {
+async function refreshSubscription(
+  row: SubscriptionRow,
+  day: string,
+  timeZone: string
+): Promise<void> {
   const text = await fetchCalendar(row.url)
   const events = eventsFromIcs(text, day, timeZone)
   replaceSubscriptionDay(row.id, day, events, nowIso(timeZone))
@@ -299,13 +331,15 @@ async function refreshSubscription(row: SubscriptionRow, day: string, timeZone: 
 function listRows(): SubscriptionRow[] {
   return getDb()
     .prepare(
-      "SELECT id, name, url, last_ok_at, last_error FROM calendar_subscriptions ORDER BY rowid ASC",
+      "SELECT id, name, url, last_ok_at, last_error FROM calendar_subscriptions ORDER BY rowid ASC"
     )
     .all() as SubscriptionRow[]
 }
 
 function markRefreshed(timeZone: string): void {
-  getDb().prepare("UPDATE calendar_state SET refreshed_at = ? WHERE id = 1").run(nowIso(timeZone))
+  getDb()
+    .prepare("UPDATE calendar_state SET refreshed_at = ? WHERE id = 1")
+    .run(nowIso(timeZone))
 }
 
 async function runRefresh(): Promise<void> {
@@ -360,28 +394,48 @@ export function startCalendarScheduler(): void {
 }
 
 function refreshedAt(): string | null {
-  const row = getDb().prepare("SELECT refreshed_at FROM calendar_state WHERE id = 1").get() as
-    | { refreshed_at: string | null }
-    | undefined
+  const row = getDb()
+    .prepare("SELECT refreshed_at FROM calendar_state WHERE id = 1")
+    .get() as { refreshed_at: string | null } | undefined
   return row?.refreshed_at ?? null
 }
 
+function refreshedDay(timeZone: string): string | null {
+  const refreshed = refreshedAt()
+  if (!refreshed) {
+    return null
+  }
+  const date = parseInstant(refreshed)
+  if (!date) {
+    return null
+  }
+  return dayKey(date, timeZone)
+}
+
 export async function refreshIfStale(): Promise<void> {
-  const count = getDb().prepare("SELECT COUNT(*) AS count FROM calendar_subscriptions").get() as {
+  const count = getDb()
+    .prepare("SELECT COUNT(*) AS count FROM calendar_subscriptions")
+    .get() as {
     count: number
   }
   if (count.count < 1) {
     return
   }
+  const timeZone = statusTimeZone()
   const refreshed = refreshedAt()
-  const stale = refreshed == null || Date.now() - Date.parse(refreshed) > refreshWaitMs
-  if (!stale) {
+  const staleByTime =
+    refreshed == null || Date.now() - Date.parse(refreshed) > refreshWaitMs
+  const staleByDay = refreshedDay(timeZone) !== todayKey(timeZone)
+  if (!staleByTime && !staleByDay) {
     return
   }
   const pending = refreshCalendars().catch(() => {
     console.error("Calendar refresh failed")
   })
-  await Promise.race([pending, new Promise<void>((resolve) => setTimeout(resolve, 8000))])
+  await Promise.race([
+    pending,
+    new Promise<void>((resolve) => setTimeout(resolve, 8000)),
+  ])
 }
 
 export function listSubscriptions(): CalendarSubscription[] {
@@ -390,7 +444,9 @@ export function listSubscriptions(): CalendarSubscription[] {
 
 export function subscriptionById(id: string): CalendarSubscription {
   const row = getDb()
-    .prepare("SELECT id, name, url, last_ok_at, last_error FROM calendar_subscriptions WHERE id = ?")
+    .prepare(
+      "SELECT id, name, url, last_ok_at, last_error FROM calendar_subscriptions WHERE id = ?"
+    )
     .get(id) as SubscriptionRow | undefined
   if (!row) {
     throw new ApiError("not_found", 404)
@@ -398,7 +454,9 @@ export function subscriptionById(id: string): CalendarSubscription {
   return toSubscription(row)
 }
 
-export async function createSubscription(body: unknown): Promise<CalendarSubscription> {
+export async function createSubscription(
+  body: unknown
+): Promise<CalendarSubscription> {
   const parsed = postSchema.safeParse(body)
   if (!parsed.success) {
     invalid()
@@ -411,7 +469,7 @@ export async function createSubscription(body: unknown): Promise<CalendarSubscri
   const id = randomUUID()
   getDb()
     .prepare(
-      "INSERT INTO calendar_subscriptions (id, name, url, last_ok_at, last_error) VALUES (?, ?, ?, NULL, NULL)",
+      "INSERT INTO calendar_subscriptions (id, name, url, last_ok_at, last_error) VALUES (?, ?, ?, NULL, NULL)"
     )
     .run(id, name, url)
   try {
@@ -423,23 +481,16 @@ export async function createSubscription(body: unknown): Promise<CalendarSubscri
 }
 
 export function deleteSubscription(id: string): void {
-  const result = getDb().prepare("DELETE FROM calendar_subscriptions WHERE id = ?").run(id)
+  const result = getDb()
+    .prepare("DELETE FROM calendar_subscriptions WHERE id = ?")
+    .run(id)
   if (result.changes === 0) {
     throw new ApiError("not_found", 404)
   }
   publish("calendar")
 }
 
-export function eventsOnDay(day: string): CalendarEventView[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT e.id, e.uid, e.title, e.start_at, e.end_at, e.all_day, s.name AS calendar_name
-       FROM calendar_events e
-       JOIN calendar_subscriptions s ON s.id = e.subscription_id
-       WHERE e.day = ?
-       ORDER BY s.rowid ASC, e.rowid ASC`,
-    )
-    .all(day) as EventRow[]
+function toEvents(rows: EventRow[]): CalendarEventView[] {
   const seen = new Set<string>()
   const events: CalendarEventView[] = []
   for (const row of rows) {
@@ -464,4 +515,34 @@ export function eventsOnDay(day: string): CalendarEventView[] {
     return Date.parse(a.start) - Date.parse(b.start)
   })
   return events
+}
+
+export function eventsBetween(
+  startDay: string,
+  endDay: string
+): Map<string, CalendarEventView[]> {
+  const rows = getDb()
+    .prepare(
+      `SELECT e.id, e.uid, e.title, e.start_at, e.end_at, e.all_day, e.day, s.name AS calendar_name
+       FROM calendar_events e
+       JOIN calendar_subscriptions s ON s.id = e.subscription_id
+       WHERE e.day >= ? AND e.day <= ?
+       ORDER BY e.day ASC, s.rowid ASC, e.rowid ASC`
+    )
+    .all(startDay, endDay) as EventRow[]
+  const grouped = new Map<string, EventRow[]>()
+  for (const row of rows) {
+    const list = grouped.get(row.day) ?? []
+    list.push(row)
+    grouped.set(row.day, list)
+  }
+  const events = new Map<string, CalendarEventView[]>()
+  for (const [day, list] of grouped) {
+    events.set(day, toEvents(list))
+  }
+  return events
+}
+
+export function eventsOnDay(day: string): CalendarEventView[] {
+  return eventsBetween(day, day).get(day) ?? []
 }

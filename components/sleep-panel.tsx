@@ -7,11 +7,18 @@ import { SleepCharts } from "@/components/sleep-charts"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { formatDayLabel, formatDuration, formatTime } from "@/lib/format"
 import { stageClass, stageLabel } from "@/lib/labels"
 import type { SleepDay, SleepStageName } from "@/lib/types"
 import { cn } from "@/lib/utils"
+
+const stageOrder: SleepStageName[] = [
+  "awake",
+  "rem",
+  "light",
+  "deep",
+  "unknown",
+]
 
 export function SleepPanel({
   days,
@@ -33,7 +40,10 @@ export function SleepPanel({
     })
   }, [days])
 
-  const index = Math.max(0, days.findIndex((day) => day.date === selected))
+  const index = Math.max(
+    0,
+    days.findIndex((day) => day.date === selected)
+  )
   const day = days[index]
 
   return (
@@ -44,13 +54,6 @@ export function SleepPanel({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <SleepCharts
-          days={days}
-          timeZone={timeZone}
-          today={today}
-          selected={selected}
-          onSelect={setSelected}
-        />
         {!day ? (
           <Empty className="px-6 py-8">
             <EmptyHeader>
@@ -78,6 +81,13 @@ export function SleepPanel({
             }}
           />
         )}
+        <SleepCharts
+          days={days}
+          timeZone={timeZone}
+          today={today}
+          selected={selected}
+          onSelect={setSelected}
+        />
       </CardContent>
     </Card>
   )
@@ -102,8 +112,13 @@ function SleepDayView({
 }) {
   const dateLabel = formatDayLabel(day.date, timeZone, today)
   const hasHealth =
-    day.bedtime !== null || day.wakeTime !== null || day.durationMinutes !== null || day.stages.length > 0
-  const present = [...new Set(day.stages.map((stage) => stage.stage))]
+    day.bedtime !== null ||
+    day.wakeTime !== null ||
+    day.durationMinutes !== null ||
+    day.stages.length > 0
+  const present = stageOrder.filter((stage) =>
+    day.stages.some((item) => item.stage === stage)
+  )
 
   return (
     <div className="flex flex-col gap-4">
@@ -122,16 +137,22 @@ function SleepDayView({
         <dl className="grid grid-cols-3 gap-3">
           <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">Bedtime</dt>
-            <dd className="tabular-nums">{day.bedtime ? formatTime(day.bedtime, timeZone) : "—"}</dd>
+            <dd className="tabular-nums">
+              {day.bedtime ? formatTime(day.bedtime, timeZone) : "—"}
+            </dd>
           </div>
           <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">Wake</dt>
-            <dd className="tabular-nums">{day.wakeTime ? formatTime(day.wakeTime, timeZone) : "—"}</dd>
+            <dd className="tabular-nums">
+              {day.wakeTime ? formatTime(day.wakeTime, timeZone) : "—"}
+            </dd>
           </div>
           <div className="min-w-0">
             <dt className="text-xs text-muted-foreground">Duration</dt>
             <dd className="tabular-nums">
-              {day.durationMinutes === null ? "—" : formatDuration(day.durationMinutes)}
+              {day.durationMinutes === null
+                ? "—"
+                : formatDuration(day.durationMinutes)}
             </dd>
           </div>
         </dl>
@@ -154,30 +175,15 @@ function SleepDayView({
           <ul className="flex flex-wrap gap-3">
             {present.map((stage) => (
               <li key={stage} className="flex items-center gap-1.5 text-xs">
-                <span aria-hidden className={cn("size-2.5 rounded-full", stageClass[stage])} />
+                <span
+                  aria-hidden
+                  className={cn("size-2.5 rounded-full", stageClass[stage])}
+                />
                 {stageLabel[stage]}
               </li>
             ))}
           </ul>
         </div>
-      ) : null}
-      {day.screenshots.length > 0 ? (
-        <ScrollArea label="Sleep screenshots" className="h-96 w-full">
-          <div className="flex flex-col gap-3 pr-3">
-            {day.screenshots.map((shot) => (
-              <img
-                key={shot.id}
-                src={shot.url}
-                alt={`Sleep screenshot, ${dateLabel}`}
-                width={360}
-                height={640}
-                loading="lazy"
-                decoding="async"
-                className="h-auto w-full rounded-md"
-              />
-            ))}
-          </div>
-        </ScrollArea>
       ) : null}
     </div>
   )
@@ -185,11 +191,16 @@ function SleepDayView({
 
 function stageSummary(day: SleepDay, timeZone: string): string {
   return day.stages
-    .map((stage) => `${stageLabel[stage.stage]}, ${formatTime(stage.start, timeZone)} – ${formatTime(stage.end, timeZone)}`)
+    .map(
+      (stage) =>
+        `${stageLabel[stage.stage]}, ${formatTime(stage.start, timeZone)} – ${formatTime(stage.end, timeZone)}`
+    )
     .join(". ")
 }
 
-function stageSlices(day: SleepDay): { stage: SleepStageName; left: number; width: number }[] {
+function stageSlices(
+  day: SleepDay
+): { stage: SleepStageName; left: number; width: number }[] {
   const starts = day.stages.map((stage) => Date.parse(stage.start))
   const ends = day.stages.map((stage) => Date.parse(stage.end))
   const origin = day.bedtime ? Date.parse(day.bedtime) : Math.min(...starts)

@@ -64,7 +64,7 @@ export function SleepCharts({
       return
     }
     const viewport = rootRef.current?.querySelector<HTMLElement>(
-      "[data-slot='scroll-area-viewport']",
+      "[data-slot='scroll-area-viewport']"
     )
     if (!viewport) {
       return
@@ -74,17 +74,22 @@ export function SleepCharts({
   }, [series.length])
 
   return (
-    <div ref={rootRef} className="flex flex-col gap-4">
-      <h3 className="font-medium">Duration</h3>
+    <div ref={rootRef}>
       <ScrollArea label="Sleep history" className="w-full">
         <div className="flex min-w-full flex-col gap-4 p-1" style={{ width }}>
+          <h3 className="sticky left-0 w-fit font-medium">Range</h3>
+          <RangeChart series={series} selected={selected} onSelect={onSelect} />
+          <h3 className="sticky left-0 w-fit font-medium">Duration</h3>
           <ChartContainer
             config={durationConfig}
             className="aspect-auto! h-44 w-full"
             initialDimension={{ width: 960, height: 176 }}
             aria-label="Sleep duration"
           >
-            <LineChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <LineChart
+              data={series}
+              margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            >
               <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="label"
@@ -103,7 +108,9 @@ export function SleepCharts({
                 content={
                   <ChartTooltipContent
                     formatter={(value) => (
-                      <span className="tabular-nums">{formatDuration(Number(value))}</span>
+                      <span className="tabular-nums">
+                        {formatDuration(Number(value))}
+                      </span>
                     )}
                   />
                 }
@@ -119,8 +126,6 @@ export function SleepCharts({
               />
             </LineChart>
           </ChartContainer>
-          <h3 className="font-medium">Range</h3>
-          <RangeChart series={series} selected={selected} onSelect={onSelect} />
         </div>
       </ScrollArea>
     </div>
@@ -137,7 +142,11 @@ function RangeChart({
   onSelect: (date: string) => void
 }) {
   return (
-    <div className="flex flex-col gap-2 pr-2" role="group" aria-label="Sleep range">
+    <div
+      className="flex flex-col gap-2 pr-2"
+      role="group"
+      aria-label="Sleep range"
+    >
       <div className="flex">
         <div className="flex h-40 w-9 shrink-0 flex-col justify-between text-xs text-muted-foreground tabular-nums">
           <span>6 PM</span>
@@ -147,7 +156,9 @@ function RangeChart({
         </div>
         <div
           className="grid h-40 min-w-0 flex-1"
-          style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}
+          style={{
+            gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))`,
+          }}
         >
           {series.map((point) => {
             const label = point.record
@@ -155,16 +166,25 @@ function RangeChart({
               : `${point.label}, No sleep`
             const className = cn(
               "relative h-40 min-w-0 border-l border-border/60",
-              selected === point.date && "bg-muted",
+              selected === point.date && "bg-muted"
             )
             if (!point.record) {
-              return <div key={point.date} className={className} aria-label={label} />
+              return (
+                <div
+                  key={point.date}
+                  className={className}
+                  aria-label={label}
+                />
+              )
             }
             return (
               <button
                 key={point.date}
                 type="button"
-                className={cn(className, "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none")}
+                className={cn(
+                  className,
+                  "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                )}
                 aria-label={label}
                 aria-pressed={selected === point.date}
                 onClick={() => onSelect(point.date)}
@@ -173,8 +193,14 @@ function RangeChart({
                   <span
                     key={`${slice.stage}-${index}`}
                     aria-hidden
-                    className={cn("absolute inset-x-0.5 rounded-sm", stageClass[slice.stage])}
-                    style={{ top: `${slice.top}%`, height: `${Math.max(slice.height, 1)}%` }}
+                    className={cn(
+                      "absolute inset-x-0.5",
+                      stageClass[slice.stage]
+                    )}
+                    style={{
+                      top: `${slice.top}%`,
+                      height: `${Math.max(slice.height, 1)}%`,
+                    }}
                   />
                 ))}
               </button>
@@ -186,7 +212,9 @@ function RangeChart({
         <div className="w-9 shrink-0" aria-hidden />
         <div
           className="grid min-w-0 flex-1"
-          style={{ gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))` }}
+          style={{
+            gridTemplateColumns: `repeat(${series.length}, minmax(0, 1fr))`,
+          }}
         >
           {series.map((point, index) => {
             const show = index === series.length - 1 || index % 5 === 0
@@ -205,11 +233,16 @@ function RangeChart({
   )
 }
 
-function buildSeries(days: SleepDay[], today: string, timeZone: string): Point[] {
+function buildSeries(
+  days: SleepDay[],
+  today: string,
+  timeZone: string
+): Point[] {
   const byDate = new Map(days.map((day) => [day.date, day]))
   const earliest = days.reduce<string | null>(
-    (soonest, day) => (soonest == null || day.date < soonest ? day.date : soonest),
-    null,
+    (soonest, day) =>
+      soonest == null || day.date < soonest ? day.date : soonest,
+    null
   )
   let start = addDays(today, -(windowDays - 1))
   if (earliest && earliest < start) {
@@ -230,8 +263,11 @@ function buildSeries(days: SleepDay[], today: string, timeZone: string): Point[]
 }
 
 function slicesFor(day: SleepDay, date: string, timeZone: string): Slice[] {
-  const axisStart = zonedMidnight(addDays(date, -1), timeZone).getTime() + axisStartHour * 3_600_000
-  const axisEnd = zonedMidnight(date, timeZone).getTime() + axisEndHour * 3_600_000
+  const axisStart =
+    zonedMidnight(addDays(date, -1), timeZone).getTime() +
+    axisStartHour * 3_600_000
+  const axisEnd =
+    zonedMidnight(date, timeZone).getTime() + axisEndHour * 3_600_000
   const span = axisEnd - axisStart
   if (!(span > 0)) {
     return []

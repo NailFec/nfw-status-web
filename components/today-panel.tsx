@@ -1,32 +1,56 @@
 "use client"
 
+import { HorizontalScroll } from "@/components/horizontal-scroll"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { formatRange, formatTime } from "@/lib/format"
-import { levelAccentClass, levelClass, levelLabel, slotLabel } from "@/lib/labels"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { formatDayLabel, formatRange, formatTime } from "@/lib/format"
+import {
+  levelAccentClass,
+  levelClass,
+  levelLabel,
+  slotLabel,
+} from "@/lib/labels"
 import { dayWindow } from "@/lib/time"
-import type { CalendarEventView, StatusSegment, TodayPayload } from "@/lib/types"
+import type {
+  CalendarEventView,
+  DayTimeline,
+  StatusSegment,
+  TodayPayload,
+} from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const ticks = [0, 6, 12, 18, 24]
 
-export function TodayPanel({ today, now }: { today: TodayPayload; now: string }) {
+export function TodayPanel({
+  today,
+  now,
+}: {
+  today: TodayPayload
+  now: string
+}) {
   return (
-    <div className="flex flex-col gap-6">
-      <CurrentStatus today={today} />
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            <h2>Today</h2>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Timeline today={today} now={now} />
-        </CardContent>
-      </Card>
-    </div>
+    <TooltipProvider delay={0}>
+      <div className="flex flex-col gap-6">
+        <CurrentStatus today={today} />
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              <h2>Today</h2>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <DayStrip today={today} now={now} />
+          </CardContent>
+        </Card>
+      </div>
+    </TooltipProvider>
   )
 }
 
@@ -54,12 +78,15 @@ function CurrentStatus({ today }: { today: TodayPayload }) {
         <div className="flex items-center gap-3">
           <span
             aria-hidden
-            className={cn("h-8 w-1.5 shrink-0 rounded-full", levelAccentClass[current.level])}
+            className={cn(
+              "h-8 w-1.5 shrink-0 rounded-full",
+              levelAccentClass[current.level]
+            )}
           />
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
             <h1
               aria-live="polite"
-              className="min-w-0 text-2xl leading-tight font-medium break-words text-balance sm:text-3xl"
+              className="min-w-0 text-2xl leading-tight font-medium text-balance break-words sm:text-3xl"
             >
               {current.content}
             </h1>
@@ -71,76 +98,142 @@ function CurrentStatus({ today }: { today: TodayPayload }) {
   )
 }
 
-function Timeline({ today, now }: { today: TodayPayload; now: string }) {
-  const window = dayWindow(today.day, today.timezone)
+function DayStrip({ today, now }: { today: TodayPayload; now: string }) {
+  const history =
+    today.history.length > 0
+      ? today.history
+      : [
+          {
+            day: today.day,
+            segments: today.segments,
+            meals: today.meals,
+            events: today.events,
+          },
+        ]
+  const latest = history[history.length - 1]?.day ?? today.day
+  return (
+    <HorizontalScroll
+      label="Days"
+      pinned
+      pinKey={`${latest}:${history.length}`}
+      pageScroll
+      className="flex snap-x snap-mandatory"
+    >
+      {history.map((item) => {
+        const label = formatDayLabel(item.day, today.timezone, today.day)
+        return (
+          <section
+            key={item.day}
+            aria-label={label}
+            className="w-full shrink-0 snap-start"
+          >
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium tabular-nums">{label}</p>
+              <Timeline
+                item={item}
+                timeZone={today.timezone}
+                now={now}
+                label={label}
+              />
+            </div>
+          </section>
+        )
+      })}
+    </HorizontalScroll>
+  )
+}
+
+function markerShift(left: number): string {
+  if (left < 12) {
+    return "translate-x-0"
+  }
+  if (left > 88) {
+    return "-translate-x-full"
+  }
+  return "-translate-x-1/2"
+}
+
+function Timeline({
+  item,
+  timeZone,
+  now,
+  label,
+}: {
+  item: DayTimeline
+  timeZone: string
+  now: string
+  label: string
+}) {
+  const window = dayWindow(item.day, timeZone)
   const startMs = window.start.getTime()
   const endMs = window.end.getTime()
   const nowMs = Date.parse(now)
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative pt-4">
-        {today.meals.map((meal) => {
-          const ratio = (Date.parse(meal.eatenAt) - startMs) / (endMs - startMs)
-          const left = Math.min(100, Math.max(0, ratio * 100))
-          return (
-            <span
-              key={meal.id}
-              role="img"
-              aria-label={`${slotLabel[meal.slot]}, ${formatTime(meal.eatenAt, today.timezone)}`}
-              className="absolute top-1 size-2.5 -translate-x-1/2 rounded-full bg-foreground"
-              style={{ left: `${left}%` }}
-            />
-          )
-        })}
+      <div className="flex flex-col gap-1">
+        <div className="relative h-10">
+          {item.meals.map((meal) => {
+            const ratio =
+              (Date.parse(meal.eatenAt) - startMs) / (endMs - startMs)
+            const left = Math.min(100, Math.max(0, ratio * 100))
+            const name = slotLabel[meal.slot]
+            const time = formatTime(meal.eatenAt, timeZone)
+            return (
+              <Tooltip key={meal.id}>
+                <TooltipTrigger
+                  type="button"
+                  delay={0}
+                  aria-label={`${name}, ${time}`}
+                  className={cn(
+                    "absolute bottom-0 flex flex-col items-center gap-1 border-0 bg-transparent p-0 text-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                    markerShift(left)
+                  )}
+                  style={{ left: `${left}%` }}
+                >
+                  <span className="leading-none whitespace-nowrap">{name}</span>
+                  <span
+                    aria-hidden
+                    className="size-2.5 rounded-full bg-foreground"
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <span className="flex max-w-xs flex-col gap-0.5">
+                    <span>{name}</span>
+                    <span className="tabular-nums">{time}</span>
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            )
+          })}
+        </div>
         <div
           role="group"
-          aria-label="Today"
+          aria-label={label}
           className="relative h-11 overflow-hidden rounded-md bg-muted"
         >
-          {today.segments.map((segment) => {
+          {item.segments.map((segment) => {
             const clip = clipSegment(segment, startMs, endMs, nowMs)
             if (!clip) {
               return null
             }
-            const endIso = segment.endedAt ?? now
-            const range = formatRange(segment.startedAt, endIso, today.timezone)
-            const label = `${segment.content}, ${range}`
-            const narrow = clip.width < 8
-            const className = cn(
-              "absolute inset-y-0 flex min-w-0 items-center overflow-hidden text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none",
-              levelClass[segment.level],
-            )
-            const style = {
-              left: `${clip.left}%`,
-              width: `${clip.width}%`,
-              minWidth: "2px",
-            }
-            if (narrow) {
-              return (
-                <Tooltip key={segment.id}>
-                  <TooltipTrigger
-                    aria-label={label}
-                    className={cn(className, "border-0 p-0")}
-                    style={style}
-                  />
-                  <TooltipContent>
-                    <span className="flex max-w-xs flex-col gap-0.5">
-                      <span className="break-words">{segment.content}</span>
-                      <span className="tabular-nums">{range}</span>
-                    </span>
-                  </TooltipContent>
-                </Tooltip>
-              )
-            }
             return (
-              <div key={segment.id} className={className} style={style} aria-label={label}>
-                <span className="truncate px-1.5">{segment.content}</span>
-              </div>
+              <StatusBlock
+                key={segment.id}
+                segment={segment}
+                clip={clip}
+                now={now}
+                timeZone={timeZone}
+              />
             )
           })}
         </div>
-        <CalendarLanes today={today} startMs={startMs} endMs={endMs} />
+        <CalendarLanes
+          events={item.events}
+          timeZone={timeZone}
+          startMs={startMs}
+          endMs={endMs}
+        />
       </div>
       <div className="relative h-4">
         {ticks.map((hour) => (
@@ -150,7 +243,12 @@ function Timeline({ today, now }: { today: TodayPayload; now: string }) {
             className="absolute text-xs text-muted-foreground tabular-nums"
             style={{
               left: `${(hour / 24) * 100}%`,
-              transform: hour === 0 ? undefined : hour === 24 ? "translateX(-100%)" : "translateX(-50%)",
+              transform:
+                hour === 0
+                  ? undefined
+                  : hour === 24
+                    ? "translateX(-100%)"
+                    : "translateX(-50%)",
             }}
           >
             {hour}
@@ -161,11 +259,58 @@ function Timeline({ today, now }: { today: TodayPayload; now: string }) {
   )
 }
 
+function StatusBlock({
+  segment,
+  clip,
+  now,
+  timeZone,
+}: {
+  segment: StatusSegment
+  clip: { left: number; width: number }
+  now: string
+  timeZone: string
+}) {
+  const endIso = segment.endedAt ?? now
+  const range = formatRange(segment.startedAt, endIso, timeZone)
+  const level = levelLabel[segment.level]
+  const description = `${segment.content}, ${level}, ${range}`
+  const narrow = clip.width < 8
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        type="button"
+        delay={0}
+        aria-label={description}
+        className={cn(
+          "absolute inset-y-0 flex min-w-0 items-center justify-start overflow-hidden border-0 p-0 text-left text-xs font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset",
+          levelClass[segment.level]
+        )}
+        style={{
+          left: `${clip.left}%`,
+          width: `${clip.width}%`,
+          minWidth: "2px",
+        }}
+      >
+        {narrow ? null : (
+          <span className="truncate px-1.5">{segment.content}</span>
+        )}
+      </TooltipTrigger>
+      <TooltipContent>
+        <span className="flex max-w-xs flex-col gap-0.5">
+          <span className="break-words">{segment.content}</span>
+          <span>{level}</span>
+          <span className="tabular-nums">{range}</span>
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 function clipSegment(
   segment: StatusSegment,
   startMs: number,
   endMs: number,
-  nowMs: number,
+  nowMs: number
 ): { left: number; width: number } | null {
   const segmentStart = Date.parse(segment.startedAt)
   const open = segment.endedAt == null
@@ -192,15 +337,17 @@ type PlacedEvent = {
 }
 
 function CalendarLanes({
-  today,
+  events,
+  timeZone,
   startMs,
   endMs,
 }: {
-  today: TodayPayload
+  events: CalendarEventView[]
+  timeZone: string
   startMs: number
   endMs: number
 }) {
-  const placed = placeEvents(today.events, startMs, endMs)
+  const placed = placeEvents(events, startMs, endMs)
   if (placed.length === 0) {
     return (
       <Empty className="px-6 py-6">
@@ -212,18 +359,25 @@ function CalendarLanes({
   }
   const lanes = Math.max(...placed.map((item) => item.lane)) + 1
   return (
-    <div className="relative" style={{ height: lanes * 28 }} role="group" aria-label="Calendar">
+    <div
+      className="relative"
+      style={{ height: lanes * 28 }}
+      role="group"
+      aria-label="Calendar"
+    >
       {placed.map((item) => {
         const range = item.event.allDay
           ? "All day"
-          : formatRange(item.event.start, item.event.end, today.timezone)
+          : formatRange(item.event.start, item.event.end, timeZone)
         const label = `${item.event.title}, ${range}, ${item.event.calendarName}`
         const narrow = item.width < 8
         return (
           <Tooltip key={item.event.id}>
             <TooltipTrigger
+              type="button"
+              delay={0}
               aria-label={label}
-              className="absolute flex min-w-0 items-center overflow-hidden rounded-sm bg-primary px-1 text-xs text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              className="absolute flex min-w-0 items-center overflow-hidden rounded-sm bg-primary px-1 text-left text-xs text-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               style={{
                 left: `${item.left}%`,
                 width: `${item.width}%`,
@@ -232,7 +386,9 @@ function CalendarLanes({
                 minWidth: "2px",
               }}
             >
-              {narrow ? null : <span className="truncate">{item.event.title}</span>}
+              {narrow ? null : (
+                <span className="truncate">{item.event.title}</span>
+              )}
             </TooltipTrigger>
             <TooltipContent>
               <span className="flex max-w-xs flex-col gap-0.5">
@@ -248,7 +404,11 @@ function CalendarLanes({
   )
 }
 
-function placeEvents(events: CalendarEventView[], startMs: number, endMs: number): PlacedEvent[] {
+function placeEvents(
+  events: CalendarEventView[],
+  startMs: number,
+  endMs: number
+): PlacedEvent[] {
   const span = endMs - startMs
   if (!(span > 0)) {
     return []

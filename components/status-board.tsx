@@ -8,6 +8,7 @@ import { TodayPanel } from "@/components/today-panel"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { withBasePath } from "@/lib/base-path"
+import { addDays, dayKey, zonedMidnight } from "@/lib/time"
 import type { LiveKind, Meal, SleepDay, TodayPayload } from "@/lib/types"
 
 export function StatusBoard({
@@ -35,9 +36,9 @@ export function StatusBoard({
     if (kind === "meal" || kind === "visible") {
       const response = await fetch(
         withBasePath(
-          `/api/meals?before=${encodeURIComponent(nextToday.day)}&limit=60`,
+          `/api/meals?before=${encodeURIComponent(nextToday.day)}&limit=60`
         ),
-        { cache: "no-store" },
+        { cache: "no-store" }
       )
       if (!response.ok) {
         throw new Error("meals")
@@ -48,9 +49,9 @@ export function StatusBoard({
     if (kind === "sleep" || kind === "visible") {
       const response = await fetch(
         withBasePath(
-          `/api/sleep?before=${encodeURIComponent(nextToday.day)}&limit=400`,
+          `/api/sleep?before=${encodeURIComponent(nextToday.day)}&limit=400`
         ),
-        { cache: "no-store" },
+        { cache: "no-store" }
       )
       if (!response.ok) {
         throw new Error("sleep")
@@ -72,6 +73,49 @@ export function StatusBoard({
   }, [])
 
   useEffect(() => {
+    let timer = 0
+    let stopped = false
+    const arm = () => {
+      if (stopped) {
+        return
+      }
+      const current = dayKey(new Date(), today.timezone)
+      if (current !== today.day) {
+        void reload("visible")
+          .then(() => {
+            if (!stopped) {
+              setError(false)
+            }
+          })
+          .catch(() => {
+            if (!stopped) {
+              setError(true)
+            }
+          })
+          .finally(() => {
+            if (!stopped) {
+              timer = window.setTimeout(arm, 30_000)
+            }
+          })
+        return
+      }
+      const nextMidnight = zonedMidnight(
+        addDays(current, 1),
+        today.timezone
+      ).getTime()
+      timer = window.setTimeout(
+        arm,
+        Math.max(1000, nextMidnight - Date.now() + 250)
+      )
+    }
+    arm()
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
+  }, [reload, today.day, today.timezone])
+
+  useEffect(() => {
     let source: EventSource | null = null
     let timer: number | null = null
     let stopped = false
@@ -80,7 +124,9 @@ export function StatusBoard({
       source = new EventSource(withBasePath("/api/live"))
       source.addEventListener("update", (event) => {
         try {
-          const data = JSON.parse(String((event as MessageEvent).data)) as { kind?: string }
+          const data = JSON.parse(String((event as MessageEvent).data)) as {
+            kind?: string
+          }
           if (
             data.kind === "status" ||
             data.kind === "meal" ||
@@ -140,7 +186,9 @@ export function StatusBoard({
                 .finally(() => setPending(false))
             }}
           >
-            {pending ? <Spinner data-icon="inline-start" aria-hidden="true" /> : null}
+            {pending ? (
+              <Spinner data-icon="inline-start" aria-hidden="true" />
+            ) : null}
             Retry
           </Button>
         </div>

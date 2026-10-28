@@ -1,19 +1,10 @@
-import { randomUUID } from "node:crypto"
-
 import { z } from "zod"
 
 import { getDb } from "@/lib/db"
 import { ApiError, invalid } from "@/lib/errors"
-import { deleteUpload, readImage, saveUpload } from "@/lib/files"
-import { mediaUrl } from "@/lib/http"
 import { publish } from "@/lib/live"
 import { formatIso, isRealDay, nowIso, parseInstant, statusTimeZone } from "@/lib/time"
-import {
-  SLEEP_STAGES,
-  type SleepDay,
-  type SleepScreenshot,
-  type SleepStage,
-} from "@/lib/types"
+import { SLEEP_STAGES, type SleepDay, type SleepStage } from "@/lib/types"
 
 type SleepRow = {
   date: string
@@ -22,12 +13,6 @@ type SleepRow = {
   duration_minutes: number | null
   stages_json: string | null
   updated_at: string
-}
-
-type ShotRow = {
-  id: string
-  date: string
-  created_at: string
 }
 
 const stageSchema = z.object({
@@ -89,49 +74,31 @@ function parseStages(json: string | null): SleepStage[] {
   }
 }
 
-function screenshotsFor(date: string): SleepScreenshot[] {
-  const rows = getDb()
-    .prepare(
-      "SELECT id, date, created_at FROM sleep_screenshots WHERE date = ? ORDER BY created_at ASC, id ASC",
-    )
-    .all(date) as ShotRow[]
-  return rows.map((row) => ({
-    id: row.id,
-    url: mediaUrl(row.id),
-    createdAt: row.created_at,
-  }))
-}
-
 export function sleepOn(date: string): SleepDay | null {
   const row = getDb().prepare("SELECT * FROM sleep_days WHERE date = ?").get(date) as
     | SleepRow
     | undefined
-  const screenshots = screenshotsFor(date)
-  if (!row && screenshots.length === 0) {
+  if (!row) {
     return null
   }
   return {
     date,
-    bedtime: row?.bedtime ?? null,
-    wakeTime: row?.wake_time ?? null,
-    durationMinutes: row?.duration_minutes ?? null,
-    stages: row ? parseStages(row.stages_json) : [],
-    screenshots,
+    bedtime: row.bedtime,
+    wakeTime: row.wake_time,
+    durationMinutes: row.duration_minutes,
+    stages: parseStages(row.stages_json),
   }
 }
 
 export function listSleep(before: string, limit: number): SleepDay[] {
   const rows = getDb()
     .prepare(
-      `SELECT date FROM (
-         SELECT date FROM sleep_days WHERE date <= ?
-         UNION
-         SELECT date FROM sleep_screenshots WHERE date <= ?
-       )
+      `SELECT date FROM sleep_days
+       WHERE date <= ?
        ORDER BY date DESC
        LIMIT ?`,
     )
-    .all(before, before, limit) as { date: string }[]
+    .all(before, limit) as { date: string }[]
   return rows.flatMap((row) => {
     const day = sleepOn(row.date)
     return day ? [day] : []
@@ -230,60 +197,5 @@ export function deleteSleep(date: string): void {
   if (result.changes === 0) {
     throw new ApiError("not_found", 404)
   }
-  publish("sleep")
-}
-
-export async function addScreenshot(
-  date: string,
-  file: File,
-): Promise<{ id: string; date: string; url: string; createdAt: string }> {
-  if (!isRealDay(date)) {
-    invalid()
-  }
-  let image
-  try {
-    image = await readImage(file)
-  } catch {
-    invalid()
-  }
-  if (!image) {
-    invalid()
-  }
-  const id = randomUUID()
-  const createdAt = nowIso()
-  const relative = saveUpload(id, image.ext, image.bytes)
-  try {
-    const db = getDb()
-    db.transaction(() => {
-      db.prepare("INSERT INTO media (id, path, mime) VALUES (?, ?, ?)").run(id, relative, image.mime)
-      db.prepare("INSERT INTO sleep_screenshots (id, date, created_at) VALUES (?, ?, ?)").run(
-        id,
-        date,
-        createdAt,
-      )
-    })()
-  } catch (error) {
-    deleteUpload(relative)
-    throw error
-  }
-  publish("sleep")
-  return { id, date, url: mediaUrl(id), createdAt }
-}
-
-export function deleteScreenshot(id: string): void {
-  const db = getDb()
-  const row = db
-    .prepare(
-      "SELECT sleep_screenshots.id AS id, media.path AS path FROM sleep_screenshots JOIN media ON media.id = sleep_screenshots.id WHERE sleep_screenshots.id = ?",
-    )
-    .get(id) as { id: string; path: string } | undefined
-  if (!row) {
-    throw new ApiError("not_found", 404)
-  }
-  db.transaction(() => {
-    db.prepare("DELETE FROM sleep_screenshots WHERE id = ?").run(id)
-    db.prepare("DELETE FROM media WHERE id = ?").run(id)
-  })()
-  deleteUpload(row.path)
   publish("sleep")
 }
